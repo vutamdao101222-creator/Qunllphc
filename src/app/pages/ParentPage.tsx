@@ -14,7 +14,7 @@ import {
 
 export default function ParentPage() {
   const { user } = useAuth();
-  const { studentStatuses, feedbacks, markFeedbackRead, addFeedbackReply, filterFeedbacks } = useSchoolData();
+  const { studentStatuses, feedbacks, submissions, assignments, markFeedbackRead, addFeedbackReply, filterFeedbacks } = useSchoolData();
   const [activeTab, setActiveTab] = useState<'overview' | 'children' | 'schedule' | 'reports' | 'notifications'>('overview');
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
@@ -36,6 +36,14 @@ export default function ParentPage() {
   }, [feedbackPeriod, feedbackType, feedbacks, filterFeedbacks, myStudentIds]);
 
   const unreadCount = notifications.filter(n => n.type === 'alert' || n.type === 'warning').length;
+
+  const pendingHomeworkCount = myStudents.reduce((sum, student) => {
+    const classAssignments = assignments.filter(a => a.classId === student.classId);
+    const pending = classAssignments.filter(a =>
+      submissions.some(s => s.assignmentId === a.id && s.studentId === student.id && s.status !== 'submitted')
+    ).length;
+    return sum + pending;
+  }, 0);
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -66,6 +74,12 @@ export default function ParentPage() {
               <div className="text-xs text-blue-200 mt-0.5">{item.label}</div>
             </div>
           ))}
+        </div>
+        <div className="mt-4 bg-white/10 border border-white/20 rounded-xl p-3">
+          <p className="text-xs text-blue-100">Tổng quan 15 giây cho phụ huynh</p>
+          <p className="text-sm text-white mt-1">
+            Hôm nay có <strong>{myStudents.length}</strong> học sinh theo dõi, còn <strong>{pendingHomeworkCount}</strong> bài tập chưa nộp.
+          </p>
         </div>
       </div>
 

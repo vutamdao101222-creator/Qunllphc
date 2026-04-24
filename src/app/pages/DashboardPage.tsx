@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
+import { useSchoolData } from '../context/SchoolDataContext';
 import {
   CLASSES, LIVE_DATA, TEACHERS, ROOMS,
   getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
@@ -54,6 +55,7 @@ function ConcentrationBar({ value }: { value: number }) {
 }
 
 export default function DashboardPage() {
+  const { learningProfiles } = useSchoolData();
   const activeClasses = LIVE_DATA.filter(l => l.isActive);
   const totalStudents = activeClasses.reduce((s, l) => s + l.currentStudents, 0);
   const avgConcentration = activeClasses.length
@@ -90,6 +92,11 @@ export default function DashboardPage() {
     const iv = setInterval(() => setTick(t => t + 1), 15000);
     return () => clearInterval(iv);
   }, []);
+
+  const riskStudents = learningProfiles.filter(profile =>
+    profile.concentrationTrend.length >= 3 &&
+    profile.concentrationTrend.slice(-3).every((v, i, arr) => i === 0 || v <= arr[i - 1])
+  );
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -315,6 +322,24 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+        <h3 className="text-gray-800 font-semibold mb-3">Phân tích lớp học thông minh</h3>
+        {riskStudents.length === 0 ? (
+          <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            Không có học sinh tụt tập trung liên tiếp trong 3 buổi gần nhất.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {riskStudents.map(item => (
+              <div key={item.studentId} className="flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                <span className="text-sm text-red-700">Học sinh {item.studentId} đang có xu hướng giảm tập trung</span>
+                <Link to="/classes/c1" className="text-xs text-blue-600 hover:underline">Xem can thiệp</Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

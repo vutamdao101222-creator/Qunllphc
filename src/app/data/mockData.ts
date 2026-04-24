@@ -124,6 +124,35 @@ export interface TeacherFeedback {
   replies: FeedbackReply[];
 }
 
+export interface Assignment {
+  id: string;
+  classId: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  assignedDate: string;
+  target: 'class' | 'group' | 'student';
+}
+
+export interface AssignmentSubmission {
+  id: string;
+  assignmentId: string;
+  studentId: string;
+  submittedAt?: string;
+  status: 'submitted' | 'pending' | 'late';
+}
+
+export interface LearningProfile {
+  studentId: string;
+  weekLabels: string[];
+  concentrationTrend: number[];
+  participationTrend: number[];
+  completionTrend: number[];
+  strengths: string[];
+  weaknesses: string[];
+  suggestedIntervention: string;
+}
+
 // ============================
 // USERS
 // ============================
@@ -596,6 +625,55 @@ export const TEACHER_FEEDBACKS: TeacherFeedback[] = [
         content: 'Cảm ơn cô, gia đình đã nhắc cháu hoàn thành bài tập đầy đủ.',
       },
     ],
+  },
+];
+
+export const ASSIGNMENTS: Assignment[] = [
+  {
+    id: 'as1',
+    classId: 'c1',
+    title: 'Bài tập hàm số bậc nhất',
+    description: 'Hoàn thành bài 12-18 trang 45.',
+    dueDate: '09/04/2026',
+    assignedDate: '08/04/2026',
+    target: 'class',
+  },
+  {
+    id: 'as2',
+    classId: 'c4',
+    title: 'Phiếu luyện tập hình học',
+    description: 'Nộp phiếu kèm hình vẽ chi tiết.',
+    dueDate: '10/04/2026',
+    assignedDate: '08/04/2026',
+    target: 'group',
+  },
+];
+
+export const ASSIGNMENT_SUBMISSIONS: AssignmentSubmission[] = [
+  { id: 'sb1', assignmentId: 'as1', studentId: 'st1', submittedAt: '08/04/2026 20:10', status: 'submitted' },
+  { id: 'sb2', assignmentId: 'as2', studentId: 'st2', status: 'pending' },
+];
+
+export const LEARNING_PROFILES: LearningProfile[] = [
+  {
+    studentId: 'st1',
+    weekLabels: ['W1', 'W2', 'W3', 'W4'],
+    concentrationTrend: [72, 76, 80, 84],
+    participationTrend: [68, 71, 78, 82],
+    completionTrend: [70, 74, 85, 90],
+    strengths: ['Tư duy logic tốt', 'Chủ động làm bài'],
+    weaknesses: ['Cần phát biểu nhiều hơn ở phần thảo luận'],
+    suggestedIntervention: 'Khuyến khích trình bày lời giải trước lớp 1 lần/buổi.',
+  },
+  {
+    studentId: 'st2',
+    weekLabels: ['W1', 'W2', 'W3', 'W4'],
+    concentrationTrend: [70, 68, 64, 62],
+    participationTrend: [65, 62, 60, 58],
+    completionTrend: [72, 70, 66, 61],
+    strengths: ['Nắm chắc kiến thức cơ bản'],
+    weaknesses: ['Đi học muộn', 'Chưa hoàn thành bài tập đều'],
+    suggestedIntervention: 'Phối hợp phụ huynh theo dõi giờ ngủ và checklist bài tập mỗi tối.',
   },
 ];
 

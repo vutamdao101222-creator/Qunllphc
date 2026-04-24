@@ -18,11 +18,12 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', icon: <LayoutDashboard size={18} />, label: 'Tổng quan', roles: ['admin', 'teacher'] },
   { to: '/monitor', icon: <MonitorPlay size={18} />, label: 'Theo dõi thực tế', roles: ['admin', 'teacher'] },
+  { to: '/classes/c1', icon: <BookOpen size={18} />, label: 'Lớp học thông minh', roles: ['admin', 'teacher'] },
   { to: '/schedule', icon: <CalendarDays size={18} />, label: 'Lịch học', roles: ['admin', 'teacher', 'parent'] },
   { to: '/reports', icon: <BarChart3 size={18} />, label: 'Báo cáo & Thống kê', roles: ['admin', 'teacher'] },
   { to: '/classes', icon: <BookOpen size={18} />, label: 'Quản lý lớp học', roles: ['admin'] },
   { to: '/teachers', icon: <Users size={18} />, label: 'Quản lý giáo viên', roles: ['admin'] },
-  { to: '/parent', icon: <Home size={18} />, label: 'Thông tin phụ huynh', roles: ['parent'] },
+  { to: '/parent', icon: <Home size={18} />, label: 'Thông tin phụ huynh', roles: ['parent', 'admin'] },
 ];
 
 export function Layout() {

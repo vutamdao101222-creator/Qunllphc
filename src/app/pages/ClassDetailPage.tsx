@@ -18,7 +18,7 @@ import {
 
 export default function ClassDetailPage() {
   const { user } = useAuth();
-  const { studentStatuses, feedbacks, setAttendance, createFeedback, toggleReplyRequested, filterFeedbacks, addFeedbackReply } = useSchoolData();
+  const { studentStatuses, feedbacks, assignments, submissions, learningProfiles, setAttendance, createFeedback, toggleReplyRequested, filterFeedbacks, addFeedbackReply } = useSchoolData();
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
   const cls = CLASSES.find(c => c.id === classId);
@@ -29,7 +29,7 @@ export default function ClassDetailPage() {
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends' | 'attendance' | 'feedback'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends' | 'attendance' | 'feedback' | 'assignments' | 'profiles'>('overview');
   const classStudents = cls ? SCHOOL_STUDENTS.filter(s => s.classId === cls.id) : [];
   const canSendFeedback = user?.role === 'teacher' || user?.role === 'admin';
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -39,6 +39,7 @@ export default function ClassDetailPage() {
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [teacherReplies, setTeacherReplies] = useState<Record<string, string>>({});
+  const classAssignments = assignments.filter(a => a.classId === classId);
   const classFeedbacks = useMemo(() => {
     const items = feedbacks
       .filter(f => f.classId === classId)
@@ -167,6 +168,8 @@ export default function ClassDetailPage() {
             { key: 'trends', label: 'Xu hướng' },
             { key: 'attendance', label: 'Điểm danh học sinh' },
             { key: 'feedback', label: 'Nhận xét phụ huynh' },
+            { key: 'assignments', label: 'Bài tập & deadline' },
+            { key: 'profiles', label: 'Learning Profile' },
           ].map(tab => (
             <button
               key={tab.key}
@@ -559,6 +562,97 @@ export default function ClassDetailPage() {
                   })
                 )}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'assignments' && (
+            <div className="space-y-3">
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-700">
+                Giao bài theo lớp/nhóm/học sinh, theo dõi hạn nộp và tỷ lệ đúng hạn.
+              </div>
+              {classAssignments.length === 0 ? (
+                <p className="text-sm text-gray-500">Chưa có bài tập cho lớp này.</p>
+              ) : (
+                classAssignments.map(assignment => {
+                  const assignmentSubmissions = submissions.filter(s => s.assignmentId === assignment.id);
+                  const submitted = assignmentSubmissions.filter(s => s.status === 'submitted').length;
+                  const total = classStudents.length || 1;
+                  const onTimeRate = Math.round((submitted / total) * 100);
+                  return (
+                    <div key={assignment.id} className="border border-gray-200 rounded-lg p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">{assignment.title}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{assignment.description}</p>
+                        </div>
+                        <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                          Hạn nộp {assignment.dueDate}
+                        </span>
+                      </div>
+                      <div className="grid sm:grid-cols-3 gap-2 mt-3">
+                        <div className="bg-gray-50 rounded-lg p-2 text-xs">
+                          <span className="text-gray-500">Đối tượng</span>
+                          <p className="font-semibold text-gray-700">{assignment.target}</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2 text-xs">
+                          <span className="text-gray-500">Đã nộp</span>
+                          <p className="font-semibold text-gray-700">{submitted}/{total}</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-2 text-xs">
+                          <span className="text-gray-500">Tỷ lệ đúng hạn</span>
+                          <p className={`font-semibold ${onTimeRate >= 80 ? 'text-green-700' : onTimeRate >= 60 ? 'text-amber-700' : 'text-red-700'}`}>
+                            {onTimeRate}%
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {activeTab === 'profiles' && (
+            <div className="space-y-3">
+              {classStudents.map(student => {
+                const profile = learningProfiles.find(p => p.studentId === student.id);
+                if (!profile) return null;
+                const declining = profile.concentrationTrend.length >= 3 &&
+                  profile.concentrationTrend.slice(-3).every((v, i, arr) => i === 0 || v <= arr[i - 1]);
+                return (
+                  <div key={student.id} className="border border-gray-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-gray-800">{student.name}</p>
+                      {declining && (
+                        <span className="text-[11px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                          Cảnh báo: tụt tập trung liên tiếp
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 h-36">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={profile.weekLabels.map((w, i) => ({
+                          week: w,
+                          tapTrung: profile.concentrationTrend[i],
+                          thamGia: profile.participationTrend[i],
+                          hoanThanh: profile.completionTrend[i],
+                        }))}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+                          <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                          <Tooltip />
+                          <Bar dataKey="tapTrung" fill="#3b82f6" />
+                          <Bar dataKey="thamGia" fill="#16a34a" />
+                          <Bar dataKey="hoanThanh" fill="#d97706" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2"><strong>Điểm mạnh:</strong> {profile.strengths.join(', ')}</p>
+                    <p className="text-xs text-gray-600 mt-1"><strong>Cần cải thiện:</strong> {profile.weaknesses.join(', ')}</p>
+                    <p className="text-xs text-indigo-700 mt-1"><strong>Gợi ý can thiệp:</strong> {profile.suggestedIntervention}</p>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

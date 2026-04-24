@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
+  ASSIGNMENTS,
+  ASSIGNMENT_SUBMISSIONS,
+  Assignment,
+  AssignmentSubmission,
+  LEARNING_PROFILES,
+  LearningProfile,
   STUDENT_DAILY_STATUS,
   StudentDailyStatus,
   STUDENTS,
@@ -34,6 +40,9 @@ interface AttendanceUpdateInput {
 interface SchoolDataContextType {
   studentStatuses: StudentDailyStatus[];
   feedbacks: TeacherFeedback[];
+  assignments: Assignment[];
+  submissions: AssignmentSubmission[];
+  learningProfiles: LearningProfile[];
   setAttendance: (input: AttendanceUpdateInput) => Promise<void>;
   createFeedback: (input: CreateFeedbackInput) => Promise<void>;
   markFeedbackRead: (feedbackId: string) => Promise<void>;
@@ -52,11 +61,15 @@ const TODAY = '08/04/2026';
 interface SchoolStore {
   studentStatuses: StudentDailyStatus[];
   feedbacks: TeacherFeedback[];
+  assignments: Assignment[];
+  submissions: AssignmentSubmission[];
 }
 
 const defaultStore: SchoolStore = {
   studentStatuses: STUDENT_DAILY_STATUS,
   feedbacks: TEACHER_FEEDBACKS,
+  assignments: ASSIGNMENTS,
+  submissions: ASSIGNMENT_SUBMISSIONS,
 };
 
 const SchoolDataContext = createContext<SchoolDataContextType | null>(null);
@@ -69,6 +82,8 @@ function readStore(): SchoolStore {
     return {
       studentStatuses: parsed.studentStatuses ?? defaultStore.studentStatuses,
       feedbacks: parsed.feedbacks ?? defaultStore.feedbacks,
+      assignments: parsed.assignments ?? defaultStore.assignments,
+      submissions: parsed.submissions ?? defaultStore.submissions,
     };
   } catch {
     return defaultStore;
@@ -223,13 +238,16 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
   const value = useMemo<SchoolDataContextType>(() => ({
     studentStatuses: store.studentStatuses,
     feedbacks: store.feedbacks,
+    assignments: store.assignments,
+    submissions: store.submissions,
+    learningProfiles: LEARNING_PROFILES,
     setAttendance,
     createFeedback,
     markFeedbackRead,
     toggleReplyRequested,
     addFeedbackReply,
     filterFeedbacks,
-  }), [store.studentStatuses, store.feedbacks]);
+  }), [store.studentStatuses, store.feedbacks, store.assignments, store.submissions]);
 
   return (
     <SchoolDataContext.Provider value={value}>
