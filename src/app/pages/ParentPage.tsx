@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   CLASSES, LIVE_DATA, NOTIFICATIONS, SESSION_REPORTS,
   getTeacher, getRoom, getConcentrationBg, getConcentrationLabel,
-  getAlertLabel, getAlertStyle, DAY_NAMES_FULL
+  getAlertLabel, getAlertStyle
 } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
+import { SCHOOL_STUDENTS, SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import {
   BookOpen, CalendarDays, Bell, Activity, Clock,
@@ -13,7 +14,11 @@ import {
 
 export default function ParentPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'schedule' | 'reports' | 'notifications'>('overview');
+  const { studentStatuses, feedbacks, markFeedbackRead, addFeedbackReply, filterFeedbacks } = useSchoolData();
+  const [activeTab, setActiveTab] = useState<'overview' | 'children' | 'schedule' | 'reports' | 'notifications'>('overview');
+  const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
+  const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
+  const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
 
   // Parent sees all classes (or their child's classes in production)
   const parentClassIds = user?.parentClassIds ?? ['c1', 'c4'];
@@ -21,6 +26,14 @@ export default function ParentPage() {
   const notifications = NOTIFICATIONS.filter(n =>
     !n.classId || parentClassIds.includes(n.classId)
   );
+  const myStudents = SCHOOL_STUDENTS.filter(student => student.parentUserId === user?.id);
+  const myStudentIds = myStudents.map(s => s.id);
+  const myFeedbacks = useMemo(() => {
+    const mine = feedbacks
+      .filter(item => myStudentIds.includes(item.studentId))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return filterFeedbacks(mine, feedbackPeriod, feedbackType);
+  }, [feedbackPeriod, feedbackType, feedbacks, filterFeedbacks, myStudentIds]);
 
   const unreadCount = notifications.filter(n => n.type === 'alert' || n.type === 'warning').length;
 
@@ -60,6 +73,7 @@ export default function ParentPage() {
       <div className="flex gap-2 overflow-x-auto">
         {[
           { key: 'overview', label: 'Tổng quan', icon: <Activity size={14} /> },
+          { key: 'children', label: 'Học sinh của tôi', icon: <Users size={14} /> },
           { key: 'schedule', label: 'Lịch học', icon: <CalendarDays size={14} /> },
           { key: 'reports', label: 'Báo cáo lớp', icon: <TrendingUp size={14} /> },
           { key: 'notifications', label: `Thông báo${unreadCount > 0 ? ` (${unreadCount})` : ''}`, icon: <Bell size={14} /> },
@@ -178,6 +192,186 @@ export default function ParentPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* CHILDREN TAB */}
+      {activeTab === 'children' && (
+        <div className="space-y-4">
+          {myStudents.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 text-center text-gray-500">
+              Chưa có dữ liệu học sinh liên kết với tài khoản phụ huynh này.
+            </div>
+          ) : (
+            myStudents.map(student => {
+              const cls = CLASSES.find(c => c.id === student.classId);
+              const teacher = cls ? getTeacher(cls.teacherId) : undefined;
+              const todayStatus = studentStatuses.find(s => s.studentId === student.id && s.date === SCHOOL_TODAY);
+              const studentFeedbacks = myFeedbacks.filter(f => f.studentId === student.id);
+
+              return (
+                <div key={student.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="bg-blue-50 border-b border-blue-100 px-5 py-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">{student.name}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {cls?.name} {teacher ? `· GVCN: ${teacher.name}` : ''}
+                      </p>
+                    </div>
+                    <span className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-full">Hôm nay</span>
+                  </div>
+
+                  <div className="p-5 space-y-4">
+                    {todayStatus ? (
+                      <div className="grid sm:grid-cols-4 gap-3">
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">Điểm danh</div>
+                          <div className={`text-sm font-semibold ${
+                            todayStatus.attendance === 'present' ? 'text-green-700' :
+                            todayStatus.attendance === 'late' ? 'text-amber-700' : 'text-red-700'
+                          }`}>
+                            {todayStatus.attendance === 'present' ? 'Có mặt' : todayStatus.attendance === 'late' ? 'Đi muộn' : 'Vắng'}
+                          </div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">Giờ vào lớp</div>
+                          <div className="text-sm font-semibold text-gray-800">{todayStatus.checkInTime ?? 'Chưa cập nhật'}</div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">Tập trung</div>
+                          <div className="text-sm font-semibold text-gray-800">{todayStatus.concentrationScore}%</div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">Tham gia</div>
+                          <div className="text-sm font-semibold text-gray-800">{todayStatus.participationScore}%</div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3 sm:col-span-2">
+                          <div className="text-xs text-gray-500 mb-1">Hành vi</div>
+                          <div className={`text-sm font-semibold ${
+                            todayStatus.behavior === 'good' ? 'text-green-700' :
+                            todayStatus.behavior === 'normal' ? 'text-amber-700' : 'text-red-700'
+                          }`}>
+                            {todayStatus.behavior === 'good' ? 'Tốt' : todayStatus.behavior === 'normal' ? 'Bình thường' : 'Cần chú ý'}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                        Hôm nay chưa có dữ liệu điểm danh cho học sinh này.
+                      </div>
+                    )}
+
+                    {todayStatus?.note && (
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                        <p className="text-sm text-blue-800">
+                          <strong>Nhận xét nhanh trong ngày:</strong> {todayStatus.note}
+                        </p>
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <h4 className="text-sm font-semibold text-gray-800">Nhận xét giáo viên gửi phụ huynh</h4>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={feedbackPeriod}
+                            onChange={e => setFeedbackPeriod(e.target.value as 'today' | 'week' | 'all')}
+                            className="border border-gray-200 rounded-lg px-2 py-1 text-xs"
+                          >
+                            <option value="today">Hôm nay</option>
+                            <option value="week">Tuần này</option>
+                            <option value="all">Tất cả</option>
+                          </select>
+                          <select
+                            value={feedbackType}
+                            onChange={e => setFeedbackType(e.target.value as 'all' | 'praise' | 'reminder' | 'discipline')}
+                            className="border border-gray-200 rounded-lg px-2 py-1 text-xs"
+                          >
+                            <option value="all">Mọi loại</option>
+                            <option value="praise">Khen ngợi</option>
+                            <option value="reminder">Nhắc nhở</option>
+                            <option value="discipline">Phê bình</option>
+                          </select>
+                        </div>
+                      </div>
+                      {studentFeedbacks.length === 0 ? (
+                        <p className="text-sm text-gray-400">Chưa có nhận xét nào.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {studentFeedbacks.slice(0, 8).map(fb => (
+                            <div key={fb.id} className="border border-gray-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                    fb.category === 'praise' ? 'bg-green-100 text-green-700' :
+                                    fb.category === 'reminder' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                  }`}>
+                                    {fb.category === 'praise' ? 'Khen ngợi' : fb.category === 'reminder' ? 'Nhắc nhở' : 'Phê bình'}
+                                  </span>
+                                  {!fb.readByParent && (
+                                    <button
+                                      onClick={() => markFeedbackRead(fb.id)}
+                                      className="text-xs text-blue-600 hover:underline"
+                                    >
+                                      Đánh dấu đã xem
+                                    </button>
+                                  )}
+                                  {fb.readByParent && (
+                                    <span className="text-[11px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full">Đã xem</span>
+                                  )}
+                                </div>
+                                <span className="text-xs text-gray-400">{fb.date}</span>
+                              </div>
+                              <p className="text-sm font-medium text-gray-800 mt-2">{fb.title}</p>
+                              <p className="text-sm text-gray-600 mt-1">{fb.content}</p>
+                              {fb.replyRequested && (
+                                <div className="mt-2 border-t border-gray-100 pt-2">
+                                  <p className="text-xs text-amber-700 mb-1">Giáo viên đang xin phản hồi từ phụ huynh</p>
+                                  <textarea
+                                    rows={2}
+                                    value={replyInputs[fb.id] ?? ''}
+                                    onChange={e => setReplyInputs(prev => ({ ...prev, [fb.id]: e.target.value }))}
+                                    placeholder="Nhập phản hồi của phụ huynh..."
+                                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm resize-none"
+                                  />
+                                  <button
+                                    onClick={async () => {
+                                      const text = (replyInputs[fb.id] ?? '').trim();
+                                      if (!text) return;
+                                      await addFeedbackReply(fb.id, {
+                                        fromRole: 'parent',
+                                        authorName: user?.name ?? 'Phụ huynh',
+                                        date: SCHOOL_TODAY,
+                                        content: text,
+                                      });
+                                      setReplyInputs(prev => ({ ...prev, [fb.id]: '' }));
+                                    }}
+                                    className="mt-2 bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700"
+                                  >
+                                    Gửi phản hồi
+                                  </button>
+                                </div>
+                              )}
+                              {fb.replies.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  {fb.replies.map(reply => (
+                                    <div key={reply.id} className="bg-gray-50 border border-gray-200 rounded-lg p-2">
+                                      <p className="text-xs text-gray-500">{reply.authorName} · {reply.date}</p>
+                                      <p className="text-sm text-gray-700">{reply.content}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       )}
 

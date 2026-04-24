@@ -1,20 +1,24 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import {
   CLASSES, LIVE_DATA, SESSION_REPORTS,
-  getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
+  getTeacher, getRoom, getConcentrationColor,
   getConcentrationBg, DAY_NAMES_FULL
 } from '../data/mockData';
+import { useAuth } from '../context/AuthContext';
+import { SCHOOL_STUDENTS, SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
 import {
   ArrowLeft, Users, Activity, Clock, BookOpen,
-  CalendarDays, TrendingDown, TrendingUp, BarChart2
+  CalendarDays, TrendingDown, TrendingUp, BarChart2, Send, MessageSquare, ClipboardCheck
 } from 'lucide-react';
 
 export default function ClassDetailPage() {
+  const { user } = useAuth();
+  const { studentStatuses, feedbacks, setAttendance, createFeedback, toggleReplyRequested, filterFeedbacks, addFeedbackReply } = useSchoolData();
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
   const cls = CLASSES.find(c => c.id === classId);
@@ -25,7 +29,22 @@ export default function ClassDetailPage() {
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends' | 'attendance' | 'feedback'>('overview');
+  const classStudents = cls ? SCHOOL_STUDENTS.filter(s => s.classId === cls.id) : [];
+  const canSendFeedback = user?.role === 'teacher' || user?.role === 'admin';
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [feedbackCategory, setFeedbackCategory] = useState<'praise' | 'reminder' | 'discipline'>('reminder');
+  const [feedbackTitle, setFeedbackTitle] = useState('');
+  const [feedbackContent, setFeedbackContent] = useState('');
+  const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
+  const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
+  const [teacherReplies, setTeacherReplies] = useState<Record<string, string>>({});
+  const classFeedbacks = useMemo(() => {
+    const items = feedbacks
+      .filter(f => f.classId === classId)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return filterFeedbacks(items, feedbackPeriod, feedbackType);
+  }, [classId, feedbackPeriod, feedbackType, feedbacks, filterFeedbacks]);
 
   if (!cls) return (
     <div className="p-6 text-gray-500 text-center">Không tìm thấy lớp học.</div>
@@ -146,6 +165,8 @@ export default function ClassDetailPage() {
             { key: 'overview', label: 'Tổng quan buổi học' },
             { key: 'sessions', label: 'Danh sách buổi học' },
             { key: 'trends', label: 'Xu hướng' },
+            { key: 'attendance', label: 'Điểm danh học sinh' },
+            { key: 'feedback', label: 'Nhận xét phụ huynh' },
           ].map(tab => (
             <button
               key={tab.key}
@@ -316,6 +337,227 @@ export default function ClassDetailPage() {
                     <Area type="monotone" dataKey="concentration" stroke="#3b82f6" fill="url(#trendGrad)" strokeWidth={2} dot={{ fill: '#3b82f6', r: 3 }} />
                   </AreaChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'attendance' && (
+            <div className="space-y-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+                Giáo viên cập nhật điểm danh theo từng học sinh. Phụ huynh sẽ thấy ngay trạng thái hôm nay và giờ vào lớp.
+              </div>
+              {classStudents.map(student => {
+                const status = studentStatuses.find(s => s.studentId === student.id && s.date === SCHOOL_TODAY);
+                return (
+                  <div key={student.id} className="border border-gray-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">{student.name}</p>
+                        <p className="text-xs text-gray-500">Ngày {SCHOOL_TODAY}</p>
+                      </div>
+                      <div className="text-xs text-gray-500">Giờ vào lớp: {status?.checkInTime ?? 'Chưa có'}</div>
+                    </div>
+                    <div className="grid sm:grid-cols-4 gap-2 mt-3">
+                      {[
+                        { value: 'present', label: 'Có mặt' },
+                        { value: 'late', label: 'Đi muộn' },
+                        { value: 'absent', label: 'Vắng' },
+                      ].map(item => (
+                        <button
+                          key={item.value}
+                          onClick={() => setAttendance({
+                            studentId: student.id,
+                            date: SCHOOL_TODAY,
+                            attendance: item.value as 'present' | 'late' | 'absent',
+                            checkInTime: item.value === 'present' ? '06:55' : item.value === 'late' ? '07:10' : '',
+                          })}
+                          className={`text-xs px-3 py-2 rounded-lg border ${
+                            status?.attendance === item.value
+                              ? 'bg-blue-600 border-blue-600 text-white'
+                              : 'bg-white border-gray-200 text-gray-600'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeTab === 'feedback' && (
+            <div className="space-y-4">
+              {canSendFeedback && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <h4 className="font-medium text-gray-800 mb-3">Gửi nhận xét đến phụ huynh</h4>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Học sinh</label>
+                      <select
+                        value={selectedStudentId}
+                        onChange={e => setSelectedStudentId(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="">Chọn học sinh</option>
+                        {classStudents.map(student => (
+                          <option key={student.id} value={student.id}>{student.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Loại nhận xét</label>
+                      <select
+                        value={feedbackCategory}
+                        onChange={e => setFeedbackCategory(e.target.value as 'praise' | 'reminder' | 'discipline')}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="praise">Khen ngợi</option>
+                        <option value="reminder">Nhắc nhở</option>
+                        <option value="discipline">Phê bình</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1">Tiêu đề</label>
+                      <input
+                        value={feedbackTitle}
+                        onChange={e => setFeedbackTitle(e.target.value)}
+                        placeholder="Ví dụ: Nhắc nhở nề nếp trong giờ học"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-500 mb-1">Nội dung gửi phụ huynh</label>
+                      <textarea
+                        value={feedbackContent}
+                        onChange={e => setFeedbackContent(e.target.value)}
+                        rows={3}
+                        placeholder="Nhập nhận xét chi tiết..."
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!selectedStudentId || !feedbackTitle.trim() || !feedbackContent.trim() || !classId || !teacher) return;
+                      await createFeedback({
+                        studentId: selectedStudentId,
+                        classId,
+                        teacherId: teacher.id,
+                        date: SCHOOL_TODAY,
+                        category: feedbackCategory,
+                        title: feedbackTitle.trim(),
+                        content: feedbackContent.trim(),
+                      });
+                      setFeedbackTitle('');
+                      setFeedbackContent('');
+                    }}
+                    className="mt-3 inline-flex items-center gap-1.5 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Send size={14} />
+                    Gửi phụ huynh
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={feedbackPeriod}
+                  onChange={e => setFeedbackPeriod(e.target.value as 'today' | 'week' | 'all')}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+                >
+                  <option value="today">Hôm nay</option>
+                  <option value="week">Tuần này</option>
+                  <option value="all">Tất cả</option>
+                </select>
+                <select
+                  value={feedbackType}
+                  onChange={e => setFeedbackType(e.target.value as 'all' | 'praise' | 'reminder' | 'discipline')}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+                >
+                  <option value="all">Mọi loại</option>
+                  <option value="praise">Khen ngợi</option>
+                  <option value="reminder">Nhắc nhở</option>
+                  <option value="discipline">Phê bình</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                {classFeedbacks.length === 0 ? (
+                  <div className="text-center text-gray-400 py-8 bg-white border border-gray-200 rounded-xl">
+                    <MessageSquare size={30} className="mx-auto mb-2 opacity-40" />
+                    Chưa có nhận xét nào cho lớp này.
+                  </div>
+                ) : (
+                  classFeedbacks.map(item => {
+                    const student = SCHOOL_STUDENTS.find(s => s.id === item.studentId);
+                    return (
+                      <div key={item.id} className="border border-gray-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-gray-800">{student?.name ?? 'Học sinh'}</div>
+                          <span className="text-xs text-gray-400">{item.date}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            item.category === 'praise' ? 'bg-green-100 text-green-700' :
+                            item.category === 'reminder' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {item.category === 'praise' ? 'Khen ngợi' : item.category === 'reminder' ? 'Nhắc nhở' : 'Phê bình'}
+                          </span>
+                          <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${
+                            item.readByParent ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+                          }`}>
+                            {item.readByParent ? 'Phụ huynh đã xem' : 'Chưa xem'}
+                          </span>
+                          <button
+                            onClick={() => toggleReplyRequested(item.id, !item.replyRequested)}
+                            className="text-[11px] text-blue-600 hover:underline"
+                          >
+                            {item.replyRequested ? 'Tắt xin phản hồi' : 'Xin phản hồi'}
+                          </button>
+                          <span className="text-xs text-gray-500">{item.title}</span>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-2">{item.content}</p>
+                        {item.replies.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {item.replies.map(reply => (
+                              <div key={reply.id} className="bg-gray-50 border border-gray-200 rounded-lg p-2">
+                                <p className="text-xs text-gray-500">{reply.authorName} · {reply.date}</p>
+                                <p className="text-sm text-gray-700">{reply.content}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-2">
+                          <textarea
+                            rows={2}
+                            value={teacherReplies[item.id] ?? ''}
+                            onChange={e => setTeacherReplies(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            placeholder="Trả lời phụ huynh..."
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm resize-none"
+                          />
+                          <button
+                            onClick={async () => {
+                              const text = (teacherReplies[item.id] ?? '').trim();
+                              if (!text) return;
+                              await addFeedbackReply(item.id, {
+                                fromRole: 'teacher',
+                                authorName: user?.name ?? 'Giáo viên',
+                                date: SCHOOL_TODAY,
+                                content: text,
+                              });
+                              setTeacherReplies(prev => ({ ...prev, [item.id]: '' }));
+                            }}
+                            className="mt-1 bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800"
+                          >
+                            Gửi trả lời
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}

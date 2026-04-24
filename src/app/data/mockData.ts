@@ -9,6 +9,7 @@ export interface User {
   password: string;
   teacherId?: string;
   parentClassIds?: string[];
+  parentStudentIds?: string[];
 }
 
 export interface Teacher {
@@ -83,6 +84,46 @@ export interface Notification {
   classId?: string;
 }
 
+export interface StudentProfile {
+  id: string;
+  name: string;
+  classId: string;
+  parentUserId: string;
+}
+
+export interface StudentDailyStatus {
+  studentId: string;
+  date: string;
+  attendance: 'present' | 'late' | 'absent';
+  checkInTime?: string;
+  concentrationScore: number;
+  participationScore: number;
+  behavior: 'good' | 'normal' | 'needs_attention';
+  note: string;
+}
+
+export interface FeedbackReply {
+  id: string;
+  fromRole: 'teacher' | 'parent';
+  authorName: string;
+  date: string;
+  content: string;
+}
+
+export interface TeacherFeedback {
+  id: string;
+  studentId: string;
+  classId: string;
+  teacherId: string;
+  date: string;
+  category: 'praise' | 'reminder' | 'discipline';
+  title: string;
+  content: string;
+  readByParent: boolean;
+  replyRequested: boolean;
+  replies: FeedbackReply[];
+}
+
 // ============================
 // USERS
 // ============================
@@ -121,6 +162,7 @@ export const USERS: User[] = [
     username: 'phuhuynha',
     password: 'parent123',
     parentClassIds: ['c1', 'c4'],
+    parentStudentIds: ['st1', 'st2'],
   },
 ];
 
@@ -478,6 +520,85 @@ export const NOTIFICATIONS: Notification[] = [
   },
 ];
 
+export const STUDENTS: StudentProfile[] = [
+  { id: 'st1', name: 'Nguyễn Minh Khôi', classId: 'c1', parentUserId: 'u4' },
+  { id: 'st2', name: 'Nguyễn Thu Hà', classId: 'c4', parentUserId: 'u4' },
+  { id: 'st3', name: 'Trần Gia Bảo', classId: 'c2', parentUserId: 'u4' },
+];
+
+export const STUDENT_DAILY_STATUS: StudentDailyStatus[] = [
+  {
+    studentId: 'st1',
+    date: '08/04/2026',
+    attendance: 'present',
+    checkInTime: '06:55',
+    concentrationScore: 83,
+    participationScore: 80,
+    behavior: 'good',
+    note: 'Tập trung tốt, hoàn thành đầy đủ bài tập trên lớp.',
+  },
+  {
+    studentId: 'st2',
+    date: '08/04/2026',
+    attendance: 'late',
+    checkInTime: '07:10',
+    concentrationScore: 62,
+    participationScore: 58,
+    behavior: 'needs_attention',
+    note: 'Đi học muộn 10 phút, cần chủ động phát biểu hơn.',
+  },
+];
+
+export const TEACHER_FEEDBACKS: TeacherFeedback[] = [
+  {
+    id: 'tf1',
+    studentId: 'st1',
+    classId: 'c1',
+    teacherId: 't1',
+    date: '08/04/2026',
+    category: 'praise',
+    title: 'Khen ngợi tinh thần học tập',
+    content: 'Em chủ động làm bài và hỗ trợ bạn trong hoạt động nhóm.',
+    readByParent: false,
+    replyRequested: false,
+    replies: [],
+  },
+  {
+    id: 'tf2',
+    studentId: 'st2',
+    classId: 'c4',
+    teacherId: 't1',
+    date: '08/04/2026',
+    category: 'discipline',
+    title: 'Nhắc nhở nề nếp',
+    content: 'Em nói chuyện riêng trong giờ, cần tập trung hơn để theo kịp bài học.',
+    readByParent: false,
+    replyRequested: true,
+    replies: [],
+  },
+  {
+    id: 'tf3',
+    studentId: 'st2',
+    classId: 'c4',
+    teacherId: 't1',
+    date: '07/04/2026',
+    category: 'reminder',
+    title: 'Nhắc chuẩn bị bài',
+    content: 'Em chưa hoàn thành bài tập về nhà, phụ huynh phối hợp nhắc em chuẩn bị đầy đủ.',
+    readByParent: true,
+    replyRequested: true,
+    replies: [
+      {
+        id: 'r1',
+        fromRole: 'parent',
+        authorName: 'Phụ Huynh A',
+        date: '07/04/2026',
+        content: 'Cảm ơn cô, gia đình đã nhắc cháu hoàn thành bài tập đầy đủ.',
+      },
+    ],
+  },
+];
+
 // ============================
 // HELPERS
 // ============================
@@ -491,6 +612,10 @@ export function getRoom(id: string): Room | undefined {
 
 export function getClass(id: string): ClassInfo | undefined {
   return CLASSES.find(c => c.id === id);
+}
+
+export function getStudent(id: string): StudentProfile | undefined {
+  return STUDENTS.find(s => s.id === id);
 }
 
 export function getLiveData(classId: string): LiveData | undefined {
