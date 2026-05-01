@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { useSchoolData } from '../context/SchoolDataContext';
+import { fetchDashboardOverview } from '../lib/api';
 import {
   CLASSES, LIVE_DATA, TEACHERS, ROOMS,
   getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
@@ -56,24 +57,29 @@ function ConcentrationBar({ value }: { value: number }) {
 
 export default function DashboardPage() {
   const { learningProfiles } = useSchoolData();
-  const activeClasses = LIVE_DATA.filter(l => l.isActive);
-  const totalStudents = activeClasses.reduce((s, l) => s + l.currentStudents, 0);
-  const avgConcentration = activeClasses.length
-    ? Math.round(activeClasses.reduce((s, l) => s + l.concentrationLevel, 0) / activeClasses.length)
-    : 0;
+  const [remoteOverview, setRemoteOverview] = useState<any | null>(null);
+  const [remoteError, setRemoteError] = useState('');
+
+  const activeClasses = remoteOverview?.classes?.filter((l: any) => l.isActive) ?? LIVE_DATA.filter(l => l.isActive);
+  const totalStudents = remoteOverview?.totalStudents ?? activeClasses.reduce((s: number, l: any) => s + l.currentStudents, 0);
+  const avgConcentration = remoteOverview?.avgConcentration ?? (
+    activeClasses.length
+      ? Math.round(activeClasses.reduce((s: number, l: any) => s + l.concentrationLevel, 0) / activeClasses.length)
+      : 0
+  );
 
   const topClass = activeClasses.reduce((best, l) =>
     l.concentrationLevel > (best?.concentrationLevel ?? 0) ? l : best, activeClasses[0]);
   const alertClasses = activeClasses.filter(l => l.alertStatus !== 'normal');
 
-  const topClassInfo = topClass ? CLASSES.find(c => c.id === topClass.classId) : null;
-  const firstAlertInfo = alertClasses[0] ? CLASSES.find(c => c.id === alertClasses[0].classId) : null;
+  const topClassInfo = topClass ? CLASSES.find(c => c.id === (topClass.classId || topClass.maLop)) : null;
+  const firstAlertInfo = alertClasses[0] ? CLASSES.find(c => c.id === (alertClasses[0].classId || alertClasses[0].maLop)) : null;
 
   // Chart data
-  const chartData = LIVE_DATA.filter(l => l.isActive).map(l => {
-    const cls = CLASSES.find(c => c.id === l.classId);
+  const chartData = activeClasses.map((l: any) => {
+    const cls = CLASSES.find(c => c.id === (l.classId || l.maLop));
     return {
-      name: cls?.name ?? l.classId,
+      name: cls?.name ?? l.tenLop ?? l.classId ?? l.maLop,
       students: l.currentStudents,
       expected: cls?.expectedStudents ?? 0,
       concentration: l.concentrationLevel,
@@ -83,7 +89,7 @@ export default function DashboardPage() {
   // Room status
   const roomStatus = ROOMS.map(room => {
     const cls = CLASSES.find(c => c.roomId === room.id);
-    const live = cls ? LIVE_DATA.find(l => l.classId === cls.id && l.isActive) : null;
+    const live = cls ? activeClasses.find((l: any) => (l.classId || l.maLop) === cls.id && l.isActive) : null;
     return { ...room, classInfo: cls, live };
   });
 
@@ -91,6 +97,29 @@ export default function DashboardPage() {
   useEffect(() => {
     const iv = setInterval(() => setTick(t => t + 1), 15000);
     return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadOverview = async () => {
+      try {
+        const data = await fetchDashboardOverview();
+        if (mounted) {
+          setRemoteOverview(data);
+          setRemoteError('');
+        }
+      } catch (error: any) {
+        if (mounted) {
+          setRemoteError(error.message ?? 'Khong the tai du lieu API');
+        }
+      }
+    };
+    loadOverview();
+    const iv = setInterval(loadOverview, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(iv);
+    };
   }, []);
 
   const riskStudents = learningProfiles.filter(profile =>
@@ -105,6 +134,11 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-gray-900">Tổng quan hệ thống</h1>
           <p className="text-sm text-gray-500 mt-0.5">Thứ Tư, 08/04/2026 · Cập nhật mỗi 15 giây</p>
+          {remoteError && (
+            <p className="text-xs text-amber-600 mt-1">
+              Đang dùng dữ liệu dự phòng do API lỗi: {remoteError}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -232,13 +266,13 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {LIVE_DATA.filter(l => l.isActive).map(live => {
-                const cls = CLASSES.find(c => c.id === live.classId);
+              {activeClasses.map((live: any) => {
+                const cls = CLASSES.find(c => c.id === (live.classId || live.maLop));
                 const teacher = cls ? getTeacher(cls.teacherId) : null;
                 const room = cls ? getRoom(cls.roomId) : null;
                 if (!cls) return null;
                 return (
-                  <tr key={live.classId} className="border-t border-gray-50 hover:bg-gray-50/70 transition-colors">
+                  <tr key={live.classId || live.maLop} className="border-t border-gray-50 hover:bg-gray-50/70 transition-colors">
                     <td className="px-5 py-3">
                       <div className="font-medium text-gray-800 text-sm">{cls.name}</div>
                       <div className="text-xs text-gray-400">{cls.subject}</div>
@@ -290,11 +324,11 @@ export default function DashboardPage() {
             Cảnh báo hiện tại
           </h3>
           <div className="space-y-3">
-            {alertClasses.map(l => {
-              const cls = CLASSES.find(c => c.id === l.classId);
+            {alertClasses.map((l: any) => {
+              const cls = CLASSES.find(c => c.id === (l.classId || l.maLop));
               const room = cls ? getRoom(cls.roomId) : null;
               return (
-                <div key={l.classId} className={`flex items-center justify-between rounded-lg px-4 py-3 border ${
+                <div key={l.classId || l.maLop} className={`flex items-center justify-between rounded-lg px-4 py-3 border ${
                   l.alertStatus === 'low_attendance' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
                 }`}>
                   <div>
@@ -309,7 +343,7 @@ export default function DashboardPage() {
                       }
                     </p>
                   </div>
-                  <Link to={`/monitor/${l.classId}`}>
+                  <Link to={`/monitor/${l.classId || l.maLop}`}>
                     <button className={`text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 ${
                       l.alertStatus === 'low_attendance' ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-amber-600 text-white hover:bg-amber-700'
                     }`}>

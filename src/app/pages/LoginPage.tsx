@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { GraduationCap, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login, user } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +22,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     await new Promise(r => setTimeout(r, 600));
-    const success = login(username, password);
+    const success = await login(username, password);
     setLoading(false);
     if (success) {
       navigate('/dashboard');
@@ -60,6 +60,11 @@ export default function LoginPage() {
         {/* Card */}
         <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-8 shadow-2xl">
           <h2 className="text-white text-lg font-semibold mb-6">Đăng nhập</h2>
+          {authLoading && (
+            <div className="mb-4 text-xs text-blue-200 bg-blue-500/20 border border-blue-300/20 rounded-lg px-3 py-2">
+              Đang kiểm tra phiên đăng nhập...
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

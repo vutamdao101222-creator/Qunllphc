@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { fetchReportSummary, getCsvExportUrl } from '../lib/api';
 import {
   CLASSES, SESSION_REPORTS, LIVE_DATA,
   getTeacher, getConcentrationColor, getConcentrationBg
@@ -23,6 +24,24 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'byClass' | 'weekly' | 'monthly'>('overview');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [dateRange, setDateRange] = useState<'week' | 'month'>('week');
+  const [remoteSummary, setRemoteSummary] = useState<any | null>(null);
+  const [remoteError, setRemoteError] = useState('');
+
+  React.useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const data = await fetchReportSummary();
+        if (mounted) {
+          setRemoteSummary(data);
+          setRemoteError('');
+        }
+      } catch (error: any) {
+        if (mounted) setRemoteError(error.message ?? 'Khong tai duoc bao cao');
+      }
+    };
+    load();
+  }, []);
 
   const filteredSessions = selectedClass === 'all'
     ? SESSION_REPORTS
@@ -74,10 +93,14 @@ export default function ReportsPage() {
     return { hour, avgConc, count: sessions.length };
   }).filter(d => d.avgConc !== null);
 
-  const totalSessions = SESSION_REPORTS.length;
-  const overallAvgConc = Math.round(SESSION_REPORTS.reduce((s, r) => s + r.avgConcentration, 0) / totalSessions);
-  const overallAvgStudents = Math.round(SESSION_REPORTS.reduce((s, r) => s + r.avgStudents, 0) / totalSessions);
-  const lowConcSessions = SESSION_REPORTS.filter(s => s.avgConcentration < 60).length;
+  const totalSessions = remoteSummary?.timeline?.length
+    ? remoteSummary.timeline.length
+    : SESSION_REPORTS.length;
+  const overallAvgConc = remoteSummary?.avgConcentration ?? Math.round(SESSION_REPORTS.reduce((s, r) => s + r.avgConcentration, 0) / totalSessions);
+  const overallAvgStudents = remoteSummary?.totalStudents
+    ? Math.round(remoteSummary.totalStudents / Math.max(1, remoteSummary.activeClasses || 1))
+    : Math.round(SESSION_REPORTS.reduce((s, r) => s + r.avgStudents, 0) / totalSessions);
+  const lowConcSessions = remoteSummary?.alerts?.length ?? SESSION_REPORTS.filter(s => s.avgConcentration < 60).length;
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -87,11 +110,17 @@ export default function ReportsPage() {
           <h1 className="text-gray-900">Báo cáo & Thống kê</h1>
           <p className="text-sm text-gray-500 mt-0.5">Dữ liệu tổng hợp 2 tuần gần nhất</p>
         </div>
-        <button className="flex items-center gap-2 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+        <a
+          href={getCsvExportUrl()}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+        >
           <Download size={15} />
           Xuất báo cáo
-        </button>
+        </a>
       </div>
+      {remoteError && <p className="text-xs text-amber-600">API báo cáo lỗi, đang dùng dữ liệu mock: {remoteError}</p>}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

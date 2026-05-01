@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { fetchParentOverview } from '../lib/api';
 import {
   CLASSES, LIVE_DATA, NOTIFICATIONS, SESSION_REPORTS,
   getTeacher, getRoom, getConcentrationBg, getConcentrationLabel,
@@ -19,13 +20,34 @@ export default function ParentPage() {
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+  const [remoteParentData, setRemoteParentData] = useState<any | null>(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const data = await fetchParentOverview();
+        if (mounted) setRemoteParentData(data);
+      } catch {
+        // fallback to local mock
+      }
+    };
+    load();
+  }, []);
 
   // Parent sees all classes (or their child's classes in production)
   const parentClassIds = user?.parentClassIds ?? ['c1', 'c4'];
   const myClasses = CLASSES.filter(c => parentClassIds.includes(c.id));
-  const notifications = NOTIFICATIONS.filter(n =>
-    !n.classId || parentClassIds.includes(n.classId)
-  );
+  const notifications = remoteParentData?.notifications?.length
+    ? remoteParentData.notifications.map((n: any) => ({
+      id: n.maThongBao,
+      title: n.tieuDe,
+      content: n.noiDung,
+      type: n.loai,
+      date: new Date(n.thoiDiem).toLocaleDateString('vi-VN'),
+      time: new Date(n.thoiDiem).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    }))
+    : NOTIFICATIONS.filter(n => !n.classId || parentClassIds.includes(n.classId));
   const myStudents = SCHOOL_STUDENTS.filter(student => student.parentUserId === user?.id);
   const myStudentIds = myStudents.map(s => s.id);
   const myFeedbacks = useMemo(() => {

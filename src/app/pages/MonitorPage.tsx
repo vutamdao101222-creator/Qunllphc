@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
+import { fetchRealtimeClasses } from '../lib/api';
 import {
   CLASSES, LIVE_DATA, LiveData,
   getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
@@ -355,10 +356,49 @@ function MonitorDetail({ classId }: { classId: string }) {
 // ===== MAIN PAGE =====
 export default function MonitorPage() {
   const { classId } = useParams<{ classId: string }>();
+  const [remoteLive, setRemoteLive] = useState<any[]>([]);
 
   if (classId) return <MonitorDetail classId={classId} />;
 
-  const activeClasses = LIVE_DATA.filter(l => l.isActive);
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const data = await fetchRealtimeClasses();
+        if (mounted) setRemoteLive(data);
+      } catch {
+        // keep local mock fallback
+      }
+    };
+    load();
+    const source = new EventSource('http://localhost:4000/api/v1/monitor/stream');
+    source.addEventListener('realtime', (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data);
+        if (mounted && payload.classes) setRemoteLive(payload.classes);
+      } catch {
+        // ignore parse errors
+      }
+    });
+    const iv = setInterval(load, 15000);
+    return () => {
+      mounted = false;
+      source.close();
+      clearInterval(iv);
+    };
+  }, []);
+
+  const normalizedRemote = remoteLive.map((item) => ({
+    classId: item.maLop,
+    isActive: item.isActive,
+    currentStudents: item.currentStudents,
+    concentrationLevel: item.concentrationLevel,
+    sessionStart: '07:00',
+    alertStatus: item.alertStatus,
+    last30MinConcentration: [],
+    last30MinStudents: [],
+  }));
+  const activeClasses = (normalizedRemote.length > 0 ? normalizedRemote : LIVE_DATA).filter(l => l.isActive);
   const [filter, setFilter] = useState<'all' | 'alert'>('all');
 
   const displayed = filter === 'alert'
