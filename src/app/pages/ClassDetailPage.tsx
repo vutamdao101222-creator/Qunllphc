@@ -15,6 +15,7 @@ import {
   ArrowLeft, Users, Activity, Clock, BookOpen,
   CalendarDays, TrendingDown, TrendingUp, BarChart2, Send, MessageSquare, ClipboardCheck
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function ClassDetailPage() {
   const { user } = useAuth();
@@ -161,7 +162,7 @@ export default function ClassDetailPage() {
 
       {/* Tabs */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="flex border-b border-gray-100">
+        <div className="flex overflow-x-auto border-b border-gray-100">
           {[
             { key: 'overview', label: 'Tổng quan buổi học' },
             { key: 'sessions', label: 'Danh sách buổi học' },
@@ -174,7 +175,7 @@ export default function ClassDetailPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key as any)}
-              className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 lg:px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -443,7 +444,10 @@ export default function ClassDetailPage() {
                   </div>
                   <button
                     onClick={async () => {
-                      if (!selectedStudentId || !feedbackTitle.trim() || !feedbackContent.trim() || !classId || !teacher) return;
+                      if (!selectedStudentId || !feedbackTitle.trim() || !feedbackContent.trim() || !classId || !teacher) {
+                        toast.error('Vui lòng nhập đầy đủ thông tin nhận xét');
+                        return;
+                      }
                       await createFeedback({
                         studentId: selectedStudentId,
                         classId,
@@ -455,6 +459,7 @@ export default function ClassDetailPage() {
                       });
                       setFeedbackTitle('');
                       setFeedbackContent('');
+                      toast.success('Đã gửi nhận xét đến phụ huynh');
                     }}
                     className="mt-3 inline-flex items-center gap-1.5 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                   >
@@ -543,7 +548,10 @@ export default function ClassDetailPage() {
                           <button
                             onClick={async () => {
                               const text = (teacherReplies[item.id] ?? '').trim();
-                              if (!text) return;
+                              if (!text) {
+                                toast.error('Vui lòng nhập nội dung trả lời');
+                                return;
+                              }
                               await addFeedbackReply(item.id, {
                                 fromRole: 'teacher',
                                 authorName: user?.name ?? 'Giáo viên',
@@ -551,6 +559,7 @@ export default function ClassDetailPage() {
                                 content: text,
                               });
                               setTeacherReplies(prev => ({ ...prev, [item.id]: '' }));
+                              toast.success('Đã gửi trả lời phụ huynh');
                             }}
                             className="mt-1 bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800"
                           >

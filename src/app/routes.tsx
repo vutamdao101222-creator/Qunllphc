@@ -12,6 +12,7 @@ import ClassManagementPage from './pages/ClassManagementPage';
 import TeacherManagementPage from './pages/TeacherManagementPage';
 import ParentPage from './pages/ParentPage';
 import NotFoundPage from './pages/NotFoundPage';
+import ForbiddenPage from './pages/ForbiddenPage';
 
 function ProtectedLayout() {
   return (
@@ -25,6 +26,10 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: '/forbidden',
+    element: <ForbiddenPage />,
   },
   {
     path: '/',

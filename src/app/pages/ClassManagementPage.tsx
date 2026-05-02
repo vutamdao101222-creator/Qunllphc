@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router';
 import { CLASSES, TEACHERS, ROOMS, getTeacher, getRoom, DAY_NAMES_FULL, ClassInfo } from '../data/mockData';
 import { Plus, Pencil, Trash2, Search, BookOpen, X, Save } from 'lucide-react';
+import { toast } from 'sonner';
 
 type FormData = {
   code: string; name: string; subject: string;
@@ -43,13 +44,17 @@ export default function ClassManagementPage() {
   };
 
   const handleSave = () => {
-    if (!form.name || !form.code) return;
+    if (!form.name || !form.code) {
+      toast.error('Vui lòng nhập đầy đủ tên lớp và mã lớp');
+      return;
+    }
     if (editId) {
       setClasses(prev => prev.map(c =>
         c.id === editId
           ? { ...c, ...form, expectedStudents: parseInt(form.expectedStudents) || 30 }
           : c
       ));
+      toast.success('Đã cập nhật lớp học');
     } else {
       const newClass: ClassInfo = {
         id: `c${Date.now()}`,
@@ -58,13 +63,16 @@ export default function ClassManagementPage() {
         schedules: [], expectedStudents: parseInt(form.expectedStudents) || 30, grade: form.grade,
       };
       setClasses(prev => [...prev, newClass]);
+      toast.success('Đã thêm lớp học mới');
     }
     setShowModal(false);
   };
 
   const handleDelete = (id: string) => {
+    const removedName = classes.find(c => c.id === id)?.name ?? 'lớp học';
     setClasses(prev => prev.filter(c => c.id !== id));
     setDeleteConfirm(null);
+    toast.success(`Đã xóa ${removedName}`);
   };
 
   return (
@@ -98,8 +106,74 @@ export default function ClassManagementPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {filtered.map(cls => {
+          const teacher = getTeacher(cls.teacherId);
+          const room = getRoom(cls.roomId);
+          return (
+            <div key={cls.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={14} className="text-blue-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium text-gray-800 truncate">{cls.name}</div>
+                    <div className="text-xs text-gray-400">{cls.code} · Khối {cls.grade}</div>
+                  </div>
+                </div>
+                <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-md">{cls.expectedStudents} HS</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div className="bg-gray-50 rounded-lg p-2">
+                  <p className="text-gray-400">Môn học</p>
+                  <p className="text-gray-700 font-medium mt-0.5">{cls.subject}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2">
+                  <p className="text-gray-400">Phòng học</p>
+                  <p className="text-gray-700 font-medium mt-0.5">{room?.name ?? '–'}</p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Giáo viên: <span className="text-gray-700">{teacher?.name ?? '–'}</span></p>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {cls.schedules.map((s, i) => (
+                  <span key={i} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                    {DAY_NAMES_FULL[s.dayOfWeek].replace('Thứ ', 'T')} {s.startTime}
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center justify-end gap-2 mt-3">
+                <Link to={`/classes/${cls.id}`}>
+                  <button className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                    Chi tiết
+                  </button>
+                </Link>
+                <button
+                  onClick={() => openEdit(cls)}
+                  className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={() => setDeleteConfirm(cls.id)}
+                  className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-10 text-center text-gray-400 text-sm">
+            Không tìm thấy lớp học nào
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
