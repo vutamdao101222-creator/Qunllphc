@@ -78,3 +78,44 @@ export async function getLatestAiPredictions() {
   `);
   return result.recordset;
 }
+
+export async function listAiPredictionHistory({ page, pageSize, maLop, from, to }) {
+  const pool = await getPool();
+  const offset = (page - 1) * pageSize;
+  const filters = [];
+  if (maLop) filters.push('a.[MãLớp] = @maLop');
+  if (from) filters.push('a.[ThờiĐiểm] >= @from');
+  if (to) filters.push('a.[ThờiĐiểm] <= @to');
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+
+  const totalReq = pool.request();
+  if (maLop) totalReq.input('maLop', maLop);
+  if (from) totalReq.input('from', from);
+  if (to) totalReq.input('to', to);
+  const total = (
+    await totalReq.query(`SELECT COUNT(*) AS total FROM dbo.AiDuDoan a ${where}`)
+  ).recordset[0].total;
+
+  const request = pool.request();
+  if (maLop) request.input('maLop', maLop);
+  if (from) request.input('from', from);
+  if (to) request.input('to', to);
+  request.input('offset', offset);
+  request.input('pageSize', pageSize);
+  const result = await request.query(`
+    SELECT
+      a.[MãDựĐoán] AS maDuDoan,
+      a.[MãLớp] AS maLop,
+      l.[TênLớp] AS tenLop,
+      a.[ĐiểmRủiRo] AS riskScore,
+      a.[MứcRủiRo] AS riskLevel,
+      a.[GợiÝCanThiệp] AS intervention,
+      a.[ThờiĐiểm] AS thoiDiem
+    FROM dbo.AiDuDoan a
+    INNER JOIN dbo.LopHoc l ON l.[MãLớp] = a.[MãLớp]
+    ${where}
+    ORDER BY a.[ThờiĐiểm] DESC
+    OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+  `);
+  return { items: result.recordset, total };
+}

@@ -18,6 +18,7 @@ export const env = {
     port: process.env.DB_PORT ? Number(process.env.DB_PORT) : undefined,
     encrypt: toBool(process.env.DB_ENCRYPT, false),
     trustServerCertificate: toBool(process.env.DB_TRUST_SERVER_CERT, true),
+    autoMigrate: toBool(process.env.DB_AUTO_MIGRATE, true),
   },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'replace_access_secret',

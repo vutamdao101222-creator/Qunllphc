@@ -17,6 +17,13 @@ function mapUser(row) {
   };
 }
 
+function roleToFlags(role) {
+  const normalized = String(role || 'parent').toLowerCase();
+  if (normalized === 'admin') return { laQuanTri: 1, laGiaoVien: 0, laPhuHuynh: 0, role: 'admin' };
+  if (normalized === 'teacher') return { laQuanTri: 0, laGiaoVien: 1, laPhuHuynh: 0, role: 'teacher' };
+  return { laQuanTri: 0, laGiaoVien: 0, laPhuHuynh: 1, role: 'parent' };
+}
+
 function signTokens(user) {
   const payload = {
     maTaiKhoan: user.maTaiKhoan,
@@ -31,6 +38,53 @@ function signTokens(user) {
     expiresIn: env.jwt.refreshExpiresIn,
   });
   return { accessToken, refreshToken };
+}
+
+export async function registerUser({ tenDangNhap, matKhau, hoTen, email, role }) {
+  const pool = await getPool();
+  const flags = roleToFlags(role);
+  const matKhauHash = await bcrypt.hash(matKhau, 10);
+
+  const existing = await pool
+    .request()
+    .input('tenDangNhap', tenDangNhap)
+    .query('SELECT TOP 1 1 AS ok FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = @tenDangNhap');
+  if (existing.recordset?.[0]) throw new HttpError(409, 'Ten dang nhap da ton tai');
+
+  const insertResult = await pool
+    .request()
+    .input('tenDangNhap', tenDangNhap)
+    .input('matKhau', '') // legacy column, keep NOT NULL
+    .input('matKhauHash', matKhauHash)
+    .input('hoTen', hoTen)
+    .input('email', email ?? null)
+    .input('laQuanTri', flags.laQuanTri)
+    .input('laGiaoVien', flags.laGiaoVien)
+    .input('laPhuHuynh', flags.laPhuHuynh)
+    .query(`
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      OUTPUT
+        inserted.[MãTàiKhoản] AS maTaiKhoan,
+        inserted.[TênĐăngNhập] AS tenDangNhap,
+        inserted.[HọTên] AS hoTen,
+        inserted.[Email] AS email,
+        inserted.[LàQuảnTrị] AS laQuanTri,
+        inserted.[LàGiáoViên] AS laGiaoVien,
+        inserted.[LàPhụHuynh] AS laPhuHuynh
+      VALUES
+      (
+        @tenDangNhap, @matKhau, @matKhauHash, @hoTen, @email,
+        @laQuanTri, @laGiaoVien, @laPhuHuynh, 1
+      )
+    `);
+
+  const user = mapUser(insertResult.recordset[0]);
+  const tokens = signTokens(user);
+  return { user, ...tokens };
 }
 
 export async function loginWithPassword(tenDangNhap, matKhau) {

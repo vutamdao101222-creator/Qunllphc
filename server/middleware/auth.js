@@ -35,3 +35,13 @@ export function requireRoles(roles) {
     return next();
   };
 }
+
+export function requireSelfOrRoles(getOwnerId, roles = ['admin']) {
+  return (req, _res, next) => {
+    if (!req.auth) return next(new HttpError(401, 'Chua dang nhap'));
+    if (roles.includes(req.auth.role)) return next();
+    const ownerId = getOwnerId(req);
+    if (ownerId && ownerId === req.auth.maTaiKhoan) return next();
+    return next(new HttpError(403, 'Ban khong co quyen truy cap tai nguyen nay'));
+  };
+}

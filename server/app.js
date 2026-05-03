@@ -9,6 +9,15 @@ import monitoringRoutes from './routes/monitoringRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import parentRoutes from './routes/parentRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import teacherRoutes from './routes/teacherRoutes.js';
+import classRoutes from './routes/classRoutes.js';
+import accountRoutes from './routes/accountRoutes.js';
+import sessionRoutes from './routes/sessionRoutes.js';
+import attendanceRoutes from './routes/attendanceRoutes.js';
+import alertRoutes from './routes/alertRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import metricsRoutes from './routes/metricsRoutes.js';
+import loginHistoryRoutes from './routes/loginHistoryRoutes.js';
 import { getPool } from './db.js';
 
 export function createApp() {
@@ -44,6 +53,15 @@ export function createApp() {
   app.use('/api/v1', reportRoutes);
   app.use('/api/v1', parentRoutes);
   app.use('/api/v1', aiRoutes);
+  app.use('/api/v1', teacherRoutes);
+  app.use('/api/v1', classRoutes);
+  app.use('/api/v1', accountRoutes);
+  app.use('/api/v1', sessionRoutes);
+  app.use('/api/v1', attendanceRoutes);
+  app.use('/api/v1', alertRoutes);
+  app.use('/api/v1', notificationRoutes);
+  app.use('/api/v1', metricsRoutes);
+  app.use('/api/v1', loginHistoryRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
