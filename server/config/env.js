@@ -11,10 +11,11 @@ export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   apiPort: Number(process.env.API_PORT || 4000),
   db: {
-    server: process.env.DB_SERVER || 'localhost',
+    // Support legacy/typo env var name DB_SEVER
+    server: process.env.DB_SERVER || process.env.DB_SEVER || 'BINMILO',
     database: process.env.DB_NAME || 'TruongHocViet',
-    user: process.env.DB_USER || '',
-    password: process.env.DB_PASSWORD || '',
+    user: process.env.DB_USER || 'sa',
+    password: process.env.DB_PASSWORD || '123456aA@',
     port: process.env.DB_PORT ? Number(process.env.DB_PORT) : undefined,
     encrypt: toBool(process.env.DB_ENCRYPT, false),
     trustServerCertificate: toBool(process.env.DB_TRUST_SERVER_CERT, true),
