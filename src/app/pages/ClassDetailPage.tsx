@@ -7,6 +7,7 @@ import {
 } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
 import { SCHOOL_STUDENTS, SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
+import { fetchClass } from '../lib/api';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Cell
@@ -35,12 +36,34 @@ export default function ClassDetailPage() {
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
   const cls = CLASSES.find(c => c.id === classId);
+  const [remoteClass, setRemoteClass] = useState<any | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const teacher = cls ? getTeacher(cls.teacherId) : null;
   const room = cls ? getRoom(cls.roomId) : null;
   const live = LIVE_DATA.find(l => l.classId === classId);
   const sessions = SESSION_REPORTS.filter(s => s.classId === classId)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const loadRemote = async () => {
+      if (cls || !classId) return;
+      setRemoteLoading(true);
+      try {
+        const data = await fetchClass(classId);
+        if (mounted) setRemoteClass(data);
+      } catch {
+        if (mounted) setRemoteClass(null);
+      } finally {
+        if (mounted) setRemoteLoading(false);
+      }
+    };
+    loadRemote();
+    return () => {
+      mounted = false;
+    };
+  }, [classId, cls]);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends' | 'attendance' | 'feedback' | 'assignments' | 'profiles'>('overview');
   const classStudents = cls ? SCHOOL_STUDENTS.filter(s => s.classId === cls.id) : [];
@@ -60,9 +83,47 @@ export default function ClassDetailPage() {
     return filterFeedbacks(items, feedbackPeriod, feedbackType);
   }, [classId, feedbackPeriod, feedbackType, feedbacks, filterFeedbacks]);
 
-  if (!cls) return (
-    <div className="p-6 text-gray-500 text-center">Không tìm thấy lớp học.</div>
-  );
+  if (!cls) {
+    if (remoteLoading) {
+      return <div className="p-6 text-gray-500 text-center">Đang tải thông tin lớp...</div>;
+    }
+    if (remoteClass) {
+      return (
+        <div className="p-4 lg:p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+            >
+              <ArrowLeft size={16} /> Quay lại
+            </button>
+            <div>
+              <h1 className="text-gray-900">{remoteClass.tenLop ?? remoteClass.maLop ?? 'Lớp học'}</h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Mã lớp: <strong>{remoteClass.maLop}</strong> · GV: {remoteClass.tenGiaoVien ?? remoteClass.maGiaoVien}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <p className="text-sm text-gray-700">
+              Lớp này đang lấy từ <strong>DB/API</strong>. Phần biểu đồ/live demo hiện chỉ có cho các lớp mock (`c1…c7`).
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Link to="/dashboard">
+              <button className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Về tổng quan</button>
+            </Link>
+            {user?.role === 'admin' && (
+              <Link to="/classes">
+                <button className="text-sm px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50">Quản lý lớp</button>
+              </Link>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return <div className="p-6 text-gray-500 text-center">Không tìm thấy thông tin lớp học.</div>;
+  }
 
   const avgConc = sessions.length
     ? Math.round(sessions.reduce((s, r) => s + r.avgConcentration, 0) / sessions.length)

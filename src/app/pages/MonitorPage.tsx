@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
 import { fetchRealtimeClasses } from '../lib/api';
+import { fetchClass } from '../lib/api';
 import {
   CLASSES, LIVE_DATA, LiveData,
   getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
@@ -198,11 +199,38 @@ function MonitorDetail({ classId }: { classId: string }) {
   const live = LIVE_DATA.find(l => l.classId === classId);
   const teacher = cls ? getTeacher(cls.teacherId) : null;
   const room = cls ? getRoom(cls.roomId) : null;
+  const [remoteClass, setRemoteClass] = useState<any | null>(null);
+  const [remoteRealtime, setRemoteRealtime] = useState<any | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
 
   const [concentration, setConcentration] = useState(live?.concentrationLevel ?? 0);
   const [students, setStudents] = useState(live?.currentStudents ?? 0);
   const [concHistory, setConcHistory] = useState(live?.last30MinConcentration ?? []);
   const [studHistory, setStudHistory] = useState(live?.last30MinStudents ?? []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRemote = async () => {
+      if (cls && live) return;
+      setRemoteLoading(true);
+      try {
+        const [c, rt] = await Promise.all([
+          fetchClass(classId).catch(() => null),
+          fetchRealtimeClasses().catch(() => null),
+        ]);
+        if (!mounted) return;
+        setRemoteClass(c);
+        const found = Array.isArray(rt) ? rt.find((x: any) => x?.maLop === classId) : null;
+        setRemoteRealtime(found || null);
+      } finally {
+        if (mounted) setRemoteLoading(false);
+      }
+    };
+    loadRemote();
+    return () => {
+      mounted = false;
+    };
+  }, [classId, cls, live]);
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -218,9 +246,78 @@ function MonitorDetail({ classId }: { classId: string }) {
     return () => clearInterval(iv);
   }, [concentration, students]);
 
-  if (!cls || !live) return (
-    <div className="p-6 text-gray-500 text-center">Không tìm thấy thông tin lớp học.</div>
-  );
+  if (!cls || !live) {
+    if (remoteLoading) {
+      return <div className="p-6 text-gray-500 text-center">Đang tải dữ liệu realtime...</div>;
+    }
+    if (remoteClass) {
+      const expected = remoteClass.siSoDuKien ?? 0;
+      const conc = Number(remoteRealtime?.concentrationLevel ?? 0);
+      const present = Number(remoteRealtime?.currentStudents ?? 0);
+      const alertStatus = remoteRealtime?.alertStatus ?? 'normal';
+      return (
+        <div className="p-4 lg:p-6 space-y-6">
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate('/monitor')} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+              <ArrowLeft size={16} /> Quay lại
+            </button>
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <h1 className="text-gray-900">{remoteClass.tenLop ?? remoteClass.maLop}</h1>
+                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${getAlertStyle(alertStatus)}`}>
+                  {alertStatus !== 'normal' && <AlertTriangle size={10} className="inline mr-1" />}
+                  {getAlertLabel(alertStatus)}
+                </span>
+              </div>
+              <p className="text-sm text-gray-500 mt-0.5">
+                GV: {remoteClass.tenGiaoVien ?? remoteClass.maGiaoVien} · Sĩ số dự kiến: {expected || '—'}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Trạng thái realtime</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {remoteRealtime ? 'Dữ liệu đang lấy từ API realtime.' : 'Chưa có dữ liệu realtime cho lớp này.'}
+                </p>
+              </div>
+              {remoteRealtime ? (
+                <div className="flex items-center gap-1.5 bg-green-50 text-green-700 text-xs px-2 py-1 rounded-full border border-green-200">
+                  <Wifi size={10} />
+                  <span>Online</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-gray-50 text-gray-600 text-xs px-2 py-1 rounded-full border border-gray-200">
+                  <WifiOff size={10} />
+                  <span>Chưa có</span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+              {[
+                { label: 'Học sinh hiện diện', value: remoteRealtime ? `${present}/${expected || '—'}` : '—', icon: <Users size={18} className="text-blue-600" />, bg: 'bg-blue-50' },
+                { label: 'Mức tập trung', value: remoteRealtime ? `${conc}%` : '—', icon: <Activity size={18} className="text-green-600" />, bg: 'bg-green-50' },
+                { label: 'Tỷ lệ tham dự', value: remoteRealtime && expected ? `${Math.round((present / expected) * 100)}%` : '—', icon: <TrendingUp size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
+                { label: 'Trạng thái lớp', value: getAlertLabel(alertStatus), icon: <AlertTriangle size={18} className={alertStatus !== 'normal' ? 'text-amber-600' : 'text-gray-400'} />, bg: alertStatus !== 'normal' ? 'bg-amber-50' : 'bg-gray-50' },
+              ].map((m, i) => (
+                <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`w-8 h-8 rounded-lg ${m.bg} flex items-center justify-center`}>{m.icon}</div>
+                    <p className="text-xs text-gray-500">{m.label}</p>
+                  </div>
+                  <p className="font-bold text-gray-900 text-lg">{m.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return <div className="p-6 text-gray-500 text-center">Không tìm thấy thông tin lớp học.</div>;
+  }
 
   const alertStatus = concentration < 60 ? 'low_concentration' : students < (cls.expectedStudents * 0.6) ? 'low_attendance' : 'normal';
 

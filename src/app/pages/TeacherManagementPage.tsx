@@ -1,241 +1,280 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router';
-import {
-  TEACHERS, CLASSES, SESSION_REPORTS,
-  getConcentrationBg, getConcentrationColor
-} from '../data/mockData';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Search, TrendingUp, TrendingDown, BookOpen, CalendarDays, BarChart2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { Plus, Search, Trash2, Pencil, RefreshCw } from 'lucide-react';
+import { ApiTeacher, createTeacher, deleteTeacher, listTeachers, updateTeacher } from '../lib/api';
 
 export default function TeacherManagementPage() {
-  const [search, setSearch] = useState('');
-  const [selectedTeacher, setSelectedTeacher] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<'maGiaoVien' | 'hoTen' | 'monHoc' | 'email'>('maGiaoVien');
+  const [order, setOrder] = useState<'asc' | 'desc'>('asc');
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState<ApiTeacher[]>([]);
 
-  const filtered = TEACHERS.filter(t =>
-    t.name.toLowerCase().includes(search.toLowerCase()) ||
-    t.subject.toLowerCase().includes(search.toLowerCase())
-  );
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<ApiTeacher | null>(null);
+  const [form, setForm] = useState<ApiTeacher>({
+    maGiaoVien: '',
+    hoTen: '',
+    monHoc: '',
+    soDienThoai: '',
+    email: '',
+  });
 
-  const getTeacherStats = (teacherId: string) => {
-    const teacherClasses = CLASSES.filter(c => c.teacherId === teacherId);
-    const classIds = teacherClasses.map(c => c.id);
-    const sessions = SESSION_REPORTS.filter(s => classIds.includes(s.classId));
-    const avgConc = sessions.length
-      ? Math.round(sessions.reduce((s, r) => s + r.avgConcentration, 0) / sessions.length)
-      : 0;
-    const avgStudents = sessions.length
-      ? Math.round(sessions.reduce((s, r) => s + r.avgStudents, 0) / sessions.length)
-      : 0;
+  const totalLabel = useMemo(() => `${items.length} giáo viên`, [items.length]);
 
-    const recentSessions = sessions.slice(0, 5);
-    const olderSessions = sessions.slice(5, 10);
-    const recentAvg = recentSessions.length ? Math.round(recentSessions.reduce((s, r) => s + r.avgConcentration, 0) / recentSessions.length) : avgConc;
-    const olderAvg = olderSessions.length ? Math.round(olderSessions.reduce((s, r) => s + r.avgConcentration, 0) / olderSessions.length) : avgConc;
-    const trend = recentAvg - olderAvg;
-
-    return { teacherClasses, sessions, avgConc, avgStudents, trend, recentSessions };
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await listTeachers({ page: 1, pageSize: 200, q: q.trim() || undefined, sort, order });
+      setItems(Array.isArray(res?.items) ? res.items : []);
+    } catch (e: any) {
+      toast.error(e?.message || 'Không tải được danh sách giáo viên');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const selectedTeacherData = selectedTeacher ? TEACHERS.find(t => t.id === selectedTeacher) : null;
-  const selectedStats = selectedTeacher ? getTeacherStats(selectedTeacher) : null;
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sort, order]);
 
-  const sessionChartData = selectedStats?.recentSessions.slice().reverse().map(s => {
-    const cls = CLASSES.find(c => c.id === s.classId);
-    return {
-      label: `${cls?.name?.slice(0, 6)} ${s.date.slice(5)}`,
-      concentration: s.avgConcentration,
-      students: s.avgStudents,
-    };
-  }) ?? [];
+  const openCreate = () => {
+    setEditing(null);
+    setForm({ maGiaoVien: '', hoTen: '', monHoc: '', soDienThoai: '', email: '' });
+    setShowForm(true);
+  };
+
+  const openEdit = (t: ApiTeacher) => {
+    setEditing(t);
+    setForm({
+      maGiaoVien: t.maGiaoVien,
+      hoTen: t.hoTen,
+      monHoc: t.monHoc,
+      soDienThoai: t.soDienThoai ?? '',
+      email: t.email ?? '',
+    });
+    setShowForm(true);
+  };
+
+  const submit = async () => {
+    if (!form.hoTen.trim() || !form.monHoc.trim() || (!editing && !form.maGiaoVien.trim())) {
+      toast.error('Vui lòng nhập đủ Mã GV, Họ tên, Môn học');
+      return;
+    }
+    try {
+      if (editing) {
+        await updateTeacher(editing.maGiaoVien, {
+          hoTen: form.hoTen.trim(),
+          monHoc: form.monHoc.trim(),
+          soDienThoai: (form.soDienThoai || '').trim() || null,
+          email: (form.email || '').trim() || null,
+        });
+        toast.success('Đã cập nhật giáo viên');
+      } else {
+        await createTeacher({
+          maGiaoVien: form.maGiaoVien.trim(),
+          hoTen: form.hoTen.trim(),
+          monHoc: form.monHoc.trim(),
+          soDienThoai: (form.soDienThoai || '').trim() || null,
+          email: (form.email || '').trim() || null,
+        });
+        toast.success('Đã tạo giáo viên');
+      }
+      setShowForm(false);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Không thể lưu giáo viên');
+    }
+  };
+
+  const remove = async (t: ApiTeacher) => {
+    const ok = window.confirm(`Xóa giáo viên ${t.hoTen} (${t.maGiaoVien})?`);
+    if (!ok) return;
+    try {
+      await deleteTeacher(t.maGiaoVien);
+      toast.success('Đã xóa giáo viên');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Không thể xóa giáo viên');
+    }
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-gray-900">Quản lý giáo viên</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{TEACHERS.length} giáo viên</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-gray-900">Quản lý giáo viên</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{totalLabel}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+            title="Tải lại"
+          >
+            <RefreshCw size={16} />
+            Tải lại
+          </button>
+          <button
+            onClick={openCreate}
+            className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            <Plus size={16} />
+            Thêm giáo viên
+          </button>
+        </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Teacher list */}
-        <div className="space-y-4">
-          <div className="relative">
+      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+        <div className="grid md:grid-cols-5 gap-2">
+          <div className="relative md:col-span-2">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Tìm giáo viên..."
-              className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Tìm theo mã / họ tên / môn học / email..."
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm"
             />
           </div>
-
-          <div className="space-y-2">
-            {filtered.map(teacher => {
-              const stats = getTeacherStats(teacher.id);
-              const isSelected = selectedTeacher === teacher.id;
-              return (
-                <button
-                  key={teacher.id}
-                  onClick={() => setSelectedTeacher(isSelected ? null : teacher.id)}
-                  className={`w-full text-left bg-white rounded-xl border shadow-sm p-4 hover:border-blue-300 transition-all ${
-                    isSelected ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                      isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {teacher.avatar}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-gray-800 text-sm truncate">{teacher.name}</div>
-                      <div className="text-xs text-gray-500">{teacher.subject}</div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className={`text-sm font-bold ${getConcentrationColor(stats.avgConc) === '#16a34a' ? 'text-green-700' : getConcentrationColor(stats.avgConc) === '#d97706' ? 'text-amber-700' : 'text-red-700'}`}>
-                        {stats.avgConc}%
-                      </div>
-                      <div className="text-xs text-gray-400">{stats.teacherClasses.length} lớp</div>
-                    </div>
-                  </div>
-                  <div className="mt-2.5 flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${stats.avgConc}%`, backgroundColor: getConcentrationColor(stats.avgConc) }}
-                      />
-                    </div>
-                    <div className={`flex items-center gap-0.5 text-xs ${stats.trend >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                      {stats.trend >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                      {Math.abs(stats.trend)}%
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          <select value={sort} onChange={(e) => setSort(e.target.value as any)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="maGiaoVien">Sort: Mã GV</option>
+            <option value="hoTen">Sort: Họ tên</option>
+            <option value="monHoc">Sort: Môn học</option>
+            <option value="email">Sort: Email</option>
+          </select>
+          <select value={order} onChange={(e) => setOrder(e.target.value as any)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="asc">Tăng dần</option>
+            <option value="desc">Giảm dần</option>
+          </select>
+          <button
+            onClick={load}
+            className="text-sm px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900"
+            disabled={loading}
+          >
+            {loading ? 'Đang tải...' : 'Tìm'}
+          </button>
         </div>
 
-        {/* Teacher detail */}
-        <div className="lg:col-span-2 space-y-4">
-          {!selectedTeacherData ? (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center text-gray-400">
-              <BarChart2 size={40} className="mx-auto mb-3 opacity-30" />
-              <p>Chọn một giáo viên để xem thống kê</p>
-            </div>
-          ) : (
-            <>
-              {/* Teacher info */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                <div className="flex items-start gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
-                    {selectedTeacherData.avatar}
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-gray-900 font-semibold">{selectedTeacherData.name}</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">{selectedTeacherData.subject}</p>
-                    <div className="flex flex-wrap gap-3 mt-3">
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg">
-                        <span>📧</span> {selectedTeacherData.email}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="text-left px-3 py-2 text-gray-500">Mã GV</th>
+                <th className="text-left px-3 py-2 text-gray-500">Họ tên</th>
+                <th className="text-left px-3 py-2 text-gray-500">Môn học</th>
+                <th className="text-left px-3 py-2 text-gray-500">Điện thoại</th>
+                <th className="text-left px-3 py-2 text-gray-500">Email</th>
+                <th className="text-right px-3 py-2 text-gray-500">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-gray-400">
+                    Chưa có dữ liệu giáo viên.
+                  </td>
+                </tr>
+              ) : (
+                items.map((t) => (
+                  <tr key={t.maGiaoVien} className="border-t border-gray-100">
+                    <td className="px-3 py-2 font-medium text-gray-800">{t.maGiaoVien}</td>
+                    <td className="px-3 py-2">{t.hoTen}</td>
+                    <td className="px-3 py-2">{t.monHoc}</td>
+                    <td className="px-3 py-2">{t.soDienThoai || '—'}</td>
+                    <td className="px-3 py-2">{t.email || '—'}</td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="inline-flex gap-2">
+                        <button
+                          onClick={() => openEdit(t)}
+                          className="inline-flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 hover:bg-gray-50"
+                        >
+                          <Pencil size={14} />
+                          Sửa
+                        </button>
+                        <button
+                          onClick={() => remove(t)}
+                          className="inline-flex items-center gap-1 text-sm border border-red-200 text-red-700 rounded-lg px-2 py-1.5 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                          Xóa
+                        </button>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg">
-                        <span>📞</span> {selectedTeacherData.phone}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Stats */}
-              {selectedStats && (
-                <>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
-                      <div className="text-2xl font-bold text-blue-700">{selectedStats.teacherClasses.length}</div>
-                      <div className="text-xs text-gray-500 mt-1">Lớp phụ trách</div>
-                    </div>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
-                      <div className={`text-2xl font-bold ${selectedStats.avgConc >= 80 ? 'text-green-700' : selectedStats.avgConc >= 60 ? 'text-amber-700' : 'text-red-700'}`}>
-                        {selectedStats.avgConc}%
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">Tập trung TB</div>
-                    </div>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
-                      <div className="text-2xl font-bold text-indigo-700">{selectedStats.sessions.length}</div>
-                      <div className="text-xs text-gray-500 mt-1">Buổi đã dạy</div>
-                    </div>
-                  </div>
-
-                  {/* Classes */}
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                    <h3 className="font-semibold text-gray-800 mb-3">Lớp đang phụ trách</h3>
-                    <div className="space-y-2">
-                      {selectedStats.teacherClasses.map(cls => {
-                        const clsSessions = SESSION_REPORTS.filter(s => s.classId === cls.id);
-                        const clsAvgConc = clsSessions.length
-                          ? Math.round(clsSessions.reduce((s, r) => s + r.avgConcentration, 0) / clsSessions.length)
-                          : 0;
-                        return (
-                          <Link key={cls.id} to={`/classes/${cls.id}`}>
-                            <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 hover:bg-blue-50 transition-colors cursor-pointer">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                                  <BookOpen size={14} className="text-blue-600" />
-                                </div>
-                                <div>
-                                  <div className="text-sm font-medium text-gray-800">{cls.name}</div>
-                                  <div className="text-xs text-gray-400">{cls.schedules.length} buổi/tuần · {cls.expectedStudents} HS</div>
-                                </div>
-                              </div>
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getConcentrationBg(clsAvgConc)}`}>
-                                {clsAvgConc}%
-                              </span>
-                            </div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Recent sessions chart */}
-                  {sessionChartData.length > 0 && (
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                      <h3 className="font-semibold text-gray-800 mb-3">Tập trung buổi gần đây</h3>
-                      <ResponsiveContainer width="100%" height={160}>
-                        <BarChart data={sessionChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                          <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                          <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} unit="%" />
-                          <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: number) => [`${v}%`, 'Tập trung']} />
-                          <Bar dataKey="concentration" radius={[3, 3, 0, 0]}>
-                            {sessionChartData.map((d, i) => (
-                              <Cell key={i} fill={getConcentrationColor(d.concentration)} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-
-                      {/* Insight */}
-                      <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-600">
-                          {selectedStats.trend >= 3 ? (
-                            <span className="text-green-700">📈 Xu hướng tập trung <strong>tăng</strong> trong các buổi gần đây ({selectedStats.trend > 0 ? '+' : ''}{selectedStats.trend}%). Tiếp tục duy trì phương pháp giảng dạy tốt!</span>
-                          ) : selectedStats.trend <= -3 ? (
-                            <span className="text-red-700">📉 Xu hướng tập trung <strong>giảm</strong> ({selectedStats.trend}%). Cân nhắc điều chỉnh phương pháp hoặc thời lượng buổi học.</span>
-                          ) : (
-                            <span className="text-gray-600">📊 Mức tập trung <strong>ổn định</strong> trong các buổi gần đây.</span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </>
+                    </td>
+                  </tr>
+                ))
               )}
-            </>
-          )}
+            </tbody>
+          </table>
         </div>
       </div>
+
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowForm(false)} />
+          <div className="relative w-[92vw] max-w-xl bg-white rounded-2xl border border-gray-200 shadow-xl p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-gray-900">{editing ? 'Cập nhật giáo viên' : 'Thêm giáo viên'}</h2>
+                <p className="text-xs text-gray-500 mt-0.5">CRUD qua API + lưu DB</p>
+              </div>
+              <button className="text-gray-500 hover:text-gray-700" onClick={() => setShowForm(false)}>
+                ✕
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3 mt-4">
+              <input
+                value={form.maGiaoVien}
+                onChange={(e) => setForm((p) => ({ ...p, maGiaoVien: e.target.value }))}
+                placeholder="Mã GV (VD: GV004)"
+                disabled={Boolean(editing)}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+              />
+              <input
+                value={form.hoTen}
+                onChange={(e) => setForm((p) => ({ ...p, hoTen: e.target.value }))}
+                placeholder="Họ tên"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                value={form.monHoc}
+                onChange={(e) => setForm((p) => ({ ...p, monHoc: e.target.value }))}
+                placeholder="Môn học"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                value={String(form.soDienThoai ?? '')}
+                onChange={(e) => setForm((p) => ({ ...p, soDienThoai: e.target.value }))}
+                placeholder="Số điện thoại (tuỳ chọn)"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                value={String(form.email ?? '')}
+                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                placeholder="Email (tuỳ chọn)"
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm md:col-span-2"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => setShowForm(false)}
+                className="text-sm px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={submit}
+                className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                disabled={loading}
+              >
+                Lưu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

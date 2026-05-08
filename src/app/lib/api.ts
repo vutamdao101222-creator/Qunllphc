@@ -158,6 +158,62 @@ export async function resetScheduleAdjustment(classId: string) {
   return request(`/lop-hoc/${encodeURIComponent(classId)}/lich-hoc/dieu-chinh`, { method: 'DELETE' });
 }
 
+export interface ApiTeacher {
+  maGiaoVien: string;
+  hoTen: string;
+  monHoc: string;
+  soDienThoai?: string | null;
+  email?: string | null;
+}
+
+export async function listTeachers(params: {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  sort?: 'maGiaoVien' | 'hoTen' | 'monHoc' | 'email';
+  order?: 'asc' | 'desc';
+} = {}) {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 50;
+  const q = params.q ? `&q=${encodeURIComponent(params.q)}` : '';
+  const sort = params.sort ? `&sort=${encodeURIComponent(params.sort)}` : '';
+  const order = params.order ? `&order=${encodeURIComponent(params.order)}` : '';
+  return request(`/giao-vien?page=${page}&pageSize=${pageSize}${q}${sort}${order}`);
+}
+
+export async function createTeacher(input: ApiTeacher) {
+  return request('/giao-vien', {
+    method: 'POST',
+    body: JSON.stringify({
+      maGiaoVien: input.maGiaoVien,
+      hoTen: input.hoTen,
+      monHoc: input.monHoc,
+      soDienThoai: input.soDienThoai || undefined,
+      email: input.email || undefined,
+    }),
+  });
+}
+
+export async function updateTeacher(maGiaoVien: string, input: Partial<Omit<ApiTeacher, 'maGiaoVien'>>) {
+  return request(`/giao-vien/${encodeURIComponent(maGiaoVien)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      hoTen: input.hoTen,
+      monHoc: input.monHoc,
+      soDienThoai: input.soDienThoai ?? undefined,
+      email: input.email ?? undefined,
+    }),
+  });
+}
+
+export async function deleteTeacher(maGiaoVien: string) {
+  return request(`/giao-vien/${encodeURIComponent(maGiaoVien)}`, { method: 'DELETE' });
+}
+
+export async function fetchClass(maLop: string) {
+  return request(`/lop-hoc/${encodeURIComponent(maLop)}`);
+}
+
 export function getCsvExportUrl() {
   return `${API_BASE_URL}/bao-cao/xuat-csv`;
 }
