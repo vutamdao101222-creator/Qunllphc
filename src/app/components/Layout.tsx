@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, MonitorPlay, BookOpen, BarChart3,
   Settings, Users, CalendarDays, Bell, LogOut, Menu, X,
-  ChevronRight, GraduationCap, Home
+  ChevronRight, GraduationCap, Home, ShieldCheck
 } from 'lucide-react';
 import { NOTIFICATIONS } from '../data/mockData';
 
@@ -23,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/reports', icon: <BarChart3 size={18} />, label: 'Báo cáo & Thống kê', roles: ['admin', 'teacher'] },
   { to: '/classes', icon: <BookOpen size={18} />, label: 'Quản lý lớp học', roles: ['admin'] },
   { to: '/teachers', icon: <Users size={18} />, label: 'Quản lý giáo viên', roles: ['admin'] },
+  { to: '/admin', icon: <ShieldCheck size={18} />, label: 'Admin điều phối', roles: ['admin'] },
   { to: '/parent', icon: <Home size={18} />, label: 'Thông tin phụ huynh', roles: ['parent', 'admin'] },
 ];
 
@@ -91,7 +92,7 @@ export function Layout() {
       <div className="px-3 py-4 border-t border-slate-700">
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-700/50">
           <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {user?.name.split(' ').pop()?.charAt(0) || 'U'}
+            {user?.name?.split(' ').pop()?.charAt(0) || 'U'}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-white text-xs font-medium truncate">{user?.name}</div>
@@ -199,7 +200,7 @@ export function Layout() {
             {/* User avatar */}
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                {user?.name.split(' ').pop()?.charAt(0) || 'U'}
+                {user?.name?.split(' ').pop()?.charAt(0) || 'U'}
               </div>
               <div className="hidden sm:block">
                 <div className="text-sm font-medium text-gray-700 leading-tight">{user?.name}</div>

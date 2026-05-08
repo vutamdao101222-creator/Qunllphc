@@ -18,6 +18,7 @@ import alertRoutes from './routes/alertRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import metricsRoutes from './routes/metricsRoutes.js';
 import loginHistoryRoutes from './routes/loginHistoryRoutes.js';
+import adminManagementRoutes from './routes/adminManagementRoutes.js';
 import { getPool } from './db.js';
 
 export function createApp() {
@@ -62,6 +63,7 @@ export function createApp() {
   app.use('/api/v1', notificationRoutes);
   app.use('/api/v1', metricsRoutes);
   app.use('/api/v1', loginHistoryRoutes);
+  app.use('/api/v1', adminManagementRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

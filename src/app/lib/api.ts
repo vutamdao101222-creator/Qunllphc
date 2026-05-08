@@ -90,6 +90,74 @@ export async function fetchParentOverview() {
   return request('/phu-huynh/tong-quan');
 }
 
+export async function fetchMyParentLinks() {
+  return request('/phu-huynh/lien-ket');
+}
+
+export async function listParentAccounts(params: { q?: string; page?: number; pageSize?: number } = {}) {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 200;
+  const q = params.q ? `&q=${encodeURIComponent(params.q)}` : '';
+  return request(`/tai-khoan?page=${page}&pageSize=${pageSize}&role=parent${q}`);
+}
+
+export async function createParentAccount(input: { name: string; username: string; password: string; email?: string }) {
+  return request('/tai-khoan', {
+    method: 'POST',
+    body: JSON.stringify({
+      tenDangNhap: input.username,
+      matKhau: input.password,
+      hoTen: input.name,
+      email: input.email || undefined,
+      role: 'parent',
+    }),
+  });
+}
+
+export async function listParentStudentLinks() {
+  return request('/admin/parent-links');
+}
+
+export async function createParentStudentLink(input: {
+  parentId: string;
+  studentId: string;
+  relationship: 'father' | 'mother' | 'guardian';
+}) {
+  return request('/admin/parent-links', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteParentStudentLink(linkId: string) {
+  return request(`/admin/parent-links/${encodeURIComponent(linkId)}`, { method: 'DELETE' });
+}
+
+export async function listScheduleAdjustments(classId?: string) {
+  const qs = classId ? `?classId=${encodeURIComponent(classId)}` : '';
+  return request(`/lich-hoc/dieu-chinh${qs}`);
+}
+
+export async function upsertScheduleAdjustment(input: {
+  classId: string;
+  schedules: Array<{ dayOfWeek: number; startTime: string; endTime: string }>;
+  reason: string;
+  updatedBy: string;
+}) {
+  return request(`/lop-hoc/${encodeURIComponent(input.classId)}/lich-hoc/dieu-chinh`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      schedules: input.schedules,
+      reason: input.reason,
+      updatedBy: input.updatedBy,
+    }),
+  });
+}
+
+export async function resetScheduleAdjustment(classId: string) {
+  return request(`/lop-hoc/${encodeURIComponent(classId)}/lich-hoc/dieu-chinh`, { method: 'DELETE' });
+}
+
 export function getCsvExportUrl() {
   return `${API_BASE_URL}/bao-cao/xuat-csv`;
 }

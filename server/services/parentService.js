@@ -1,4 +1,4 @@
-import { getPool } from '../db.js';
+import { getPool, sql } from '../db.js';
 import { getLatestRealtime } from './monitoringService.js';
 
 export async function getParentOverview() {
@@ -18,4 +18,23 @@ export async function getParentOverview() {
     classes: realtime,
     notifications: notificationResult.recordset,
   };
+}
+
+export async function listMyParentLinks(maPhuHuynh) {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('maPhuHuynh', sql.UniqueIdentifier, maPhuHuynh)
+    .query(`
+      SELECT
+        [MaLienKet] AS id,
+        [MaPhuHuynh] AS parentId,
+        [MaHocSinh] AS studentId,
+        [QuanHe] AS relationship,
+        [NgayTao] AS createdAt
+      FROM dbo.PhuHuynh_HocSinh
+      WHERE [MaPhuHuynh] = @maPhuHuynh
+      ORDER BY [NgayTao] DESC
+    `);
+  return result.recordset;
 }

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createParentStudentLink, deleteParentStudentLink, fetchMyParentLinks, listParentStudentLinks, listScheduleAdjustments, resetScheduleAdjustment, upsertScheduleAdjustment } from '../lib/api';
 import {
   ASSIGNMENTS,
   ASSIGNMENT_SUBMISSIONS,
@@ -6,11 +7,13 @@ import {
   AssignmentSubmission,
   LEARNING_PROFILES,
   LearningProfile,
+  ScheduleSlot,
   STUDENT_DAILY_STATUS,
   StudentDailyStatus,
   STUDENTS,
   TEACHER_FEEDBACKS,
   TeacherFeedback,
+  USERS,
 } from '../data/mockData';
 
 type FeedbackCategory = TeacherFeedback['category'] | 'all';
@@ -43,6 +46,9 @@ interface SchoolDataContextType {
   assignments: Assignment[];
   submissions: AssignmentSubmission[];
   learningProfiles: LearningProfile[];
+  parentAccounts: ParentAccount[];
+  parentStudentLinks: ParentStudentLink[];
+  scheduleAdjustments: ScheduleAdjustment[];
   setAttendance: (input: AttendanceUpdateInput) => Promise<void>;
   createFeedback: (input: CreateFeedbackInput) => Promise<void>;
   markFeedbackRead: (feedbackId: string) => Promise<void>;
@@ -51,6 +57,13 @@ interface SchoolDataContextType {
     feedbackId: string,
     payload: { fromRole: 'teacher' | 'parent'; authorName: string; date: string; content: string }
   ) => Promise<void>;
+  createParentAccount: (input: CreateParentAccountInput) => Promise<ParentAccount>;
+  linkStudentToParent: (input: LinkStudentParentInput) => Promise<void>;
+  unlinkStudentFromParent: (linkId: string) => Promise<void>;
+  updateClassSchedules: (input: UpdateClassScheduleInput) => Promise<void>;
+  resetClassSchedules: (classId: string) => Promise<void>;
+  getEffectiveSchedules: (classId: string, fallback: ScheduleSlot[]) => ScheduleSlot[];
+  getParentsOfStudent: (studentId: string) => ParentAccount[];
   filterFeedbacks: (items: TeacherFeedback[], period: FeedbackPeriod, category: FeedbackCategory) => TeacherFeedback[];
 }
 
@@ -63,13 +76,82 @@ interface SchoolStore {
   feedbacks: TeacherFeedback[];
   assignments: Assignment[];
   submissions: AssignmentSubmission[];
+  parentAccounts: ParentAccount[];
+  parentStudentLinks: ParentStudentLink[];
+  scheduleAdjustments: ScheduleAdjustment[];
 }
+
+export interface ParentAccount {
+  id: string;
+  name: string;
+  username: string;
+  password: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface ParentStudentLink {
+  id: string;
+  parentId: string;
+  studentId: string;
+  relationship: 'father' | 'mother' | 'guardian';
+  createdAt: string;
+}
+
+export interface ScheduleAdjustment {
+  id: string;
+  classId: string;
+  schedules: ScheduleSlot[];
+  reason: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+interface CreateParentAccountInput {
+  name: string;
+  username: string;
+  password: string;
+  email: string;
+}
+
+interface LinkStudentParentInput {
+  parentId: string;
+  studentId: string;
+  relationship: 'father' | 'mother' | 'guardian';
+}
+
+interface UpdateClassScheduleInput {
+  classId: string;
+  schedules: ScheduleSlot[];
+  reason: string;
+  updatedBy: string;
+}
+
+const defaultParentAccounts: ParentAccount[] = USERS.filter((u) => u.role === 'parent').map((u) => ({
+  id: u.id,
+  name: u.name,
+  username: u.username,
+  password: u.password,
+  email: u.email,
+  createdAt: '08/04/2026',
+}));
+
+const defaultParentStudentLinks: ParentStudentLink[] = STUDENTS.map((student, idx) => ({
+  id: `lnk-default-${idx + 1}`,
+  parentId: student.parentUserId,
+  studentId: student.id,
+  relationship: 'guardian',
+  createdAt: '08/04/2026',
+}));
 
 const defaultStore: SchoolStore = {
   studentStatuses: STUDENT_DAILY_STATUS,
   feedbacks: TEACHER_FEEDBACKS,
   assignments: ASSIGNMENTS,
   submissions: ASSIGNMENT_SUBMISSIONS,
+  parentAccounts: defaultParentAccounts,
+  parentStudentLinks: defaultParentStudentLinks,
+  scheduleAdjustments: [],
 };
 
 const SchoolDataContext = createContext<SchoolDataContextType | null>(null);
@@ -84,6 +166,9 @@ function readStore(): SchoolStore {
       feedbacks: parsed.feedbacks ?? defaultStore.feedbacks,
       assignments: parsed.assignments ?? defaultStore.assignments,
       submissions: parsed.submissions ?? defaultStore.submissions,
+      parentAccounts: parsed.parentAccounts ?? defaultStore.parentAccounts,
+      parentStudentLinks: parsed.parentStudentLinks ?? defaultStore.parentStudentLinks,
+      scheduleAdjustments: parsed.scheduleAdjustments ?? defaultStore.scheduleAdjustments,
     };
   } catch {
     return defaultStore;
@@ -106,6 +191,29 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     writeStore(store);
   }, [store]);
+
+  useEffect(() => {
+    let mounted = true;
+    const hydrateRemote = async () => {
+      try {
+        const [links, adjs] = await Promise.all([fetchMyParentLinks(), listScheduleAdjustments()]);
+        if (!mounted) return;
+        const remoteLinks: ParentStudentLink[] = Array.isArray(links?.items) ? links.items : [];
+        const remoteAdjs: ScheduleAdjustment[] = Array.isArray(adjs?.items) ? adjs.items : [];
+        setStore((prev) => ({
+          ...prev,
+          parentStudentLinks: remoteLinks.length ? remoteLinks : prev.parentStudentLinks,
+          scheduleAdjustments: remoteAdjs.length ? remoteAdjs : prev.scheduleAdjustments,
+        }));
+      } catch {
+        // ignore - keep local store (offline/demo)
+      }
+    };
+    hydrateRemote();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL_NAME) : null;
@@ -227,6 +335,144 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     }));
   };
 
+  const createParentAccount: SchoolDataContextType['createParentAccount'] = async (input) => {
+    const normalizedUsername = input.username.trim().toLowerCase();
+    const now = new Date().toISOString();
+    const created: ParentAccount = {
+      id: `parent-${Date.now()}`,
+      name: input.name.trim(),
+      username: normalizedUsername,
+      password: input.password,
+      email: input.email.trim(),
+      createdAt: now,
+    };
+
+    await updateStore((prev) => {
+      if (prev.parentAccounts.some((p) => p.username.toLowerCase() === normalizedUsername)) {
+        throw new Error('Ten dang nhap phu huynh da ton tai');
+      }
+      return {
+        ...prev,
+        parentAccounts: [created, ...prev.parentAccounts],
+      };
+    });
+
+    return created;
+  };
+
+  const linkStudentToParent: SchoolDataContextType['linkStudentToParent'] = async (input) => {
+    const now = new Date().toISOString();
+    try {
+      const res = await createParentStudentLink({
+        parentId: input.parentId,
+        studentId: input.studentId,
+        relationship: input.relationship,
+      });
+      const created = res?.item;
+      if (!created) return;
+      await updateStore((prev) => {
+        const exists = prev.parentStudentLinks.some((l) => l.id === created.id);
+        if (exists) return prev;
+        return { ...prev, parentStudentLinks: [created, ...prev.parentStudentLinks] };
+      });
+    } catch {
+      await updateStore((prev) => {
+        const exists = prev.parentStudentLinks.some(
+          (link) => link.parentId === input.parentId && link.studentId === input.studentId,
+        );
+        if (exists) return prev;
+        const nextLink: ParentStudentLink = {
+          id: `lnk-${Date.now()}`,
+          parentId: input.parentId,
+          studentId: input.studentId,
+          relationship: input.relationship,
+          createdAt: now,
+        };
+        return { ...prev, parentStudentLinks: [nextLink, ...prev.parentStudentLinks] };
+      });
+    }
+  };
+
+  const unlinkStudentFromParent: SchoolDataContextType['unlinkStudentFromParent'] = async (linkId) => {
+    try {
+      await deleteParentStudentLink(linkId);
+    } catch {
+      // ignore, still update UI to be responsive
+    }
+    await updateStore((prev) => ({
+      ...prev,
+      parentStudentLinks: prev.parentStudentLinks.filter((l) => l.id !== linkId),
+    }));
+  };
+
+  const updateClassSchedules: SchoolDataContextType['updateClassSchedules'] = async (input) => {
+    const now = new Date().toISOString();
+    const normalized = input.schedules
+      .map((slot) => ({
+        dayOfWeek: Number(slot.dayOfWeek),
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+      }))
+      .filter((slot) => slot.dayOfWeek >= 1 && slot.dayOfWeek <= 7 && slot.startTime && slot.endTime)
+      .sort((a, b) => (a.dayOfWeek - b.dayOfWeek) || a.startTime.localeCompare(b.startTime));
+
+    try {
+      const res = await upsertScheduleAdjustment({
+        classId: input.classId,
+        schedules: normalized,
+        reason: input.reason.trim(),
+        updatedBy: input.updatedBy,
+      });
+      const saved = res?.item;
+      if (saved) {
+        await updateStore((prev) => ({
+          ...prev,
+          scheduleAdjustments: [saved, ...prev.scheduleAdjustments.filter((a) => a.classId !== input.classId)],
+        }));
+        return;
+      }
+    } catch {
+      // fallback below
+    }
+
+    await updateStore((prev) => {
+      const nextAdjustment: ScheduleAdjustment = {
+        id: `adj-${Date.now()}`,
+        classId: input.classId,
+        schedules: normalized,
+        reason: input.reason.trim(),
+        updatedBy: input.updatedBy,
+        updatedAt: now,
+      };
+      return {
+        ...prev,
+        scheduleAdjustments: [nextAdjustment, ...prev.scheduleAdjustments.filter((a) => a.classId !== input.classId)],
+      };
+    });
+  };
+
+  const resetClassSchedules: SchoolDataContextType['resetClassSchedules'] = async (classId) => {
+    try {
+      await resetScheduleAdjustment(classId);
+    } catch {
+      // ignore - still reset locally
+    }
+    await updateStore((prev) => ({
+      ...prev,
+      scheduleAdjustments: prev.scheduleAdjustments.filter((a) => a.classId !== classId),
+    }));
+  };
+
+  const getEffectiveSchedules: SchoolDataContextType['getEffectiveSchedules'] = (classId, fallback) => {
+    const latest = store.scheduleAdjustments.find((item) => item.classId === classId);
+    return latest?.schedules?.length ? latest.schedules : fallback;
+  };
+
+  const getParentsOfStudent: SchoolDataContextType['getParentsOfStudent'] = (studentId) => {
+    const parentIds = store.parentStudentLinks.filter((link) => link.studentId === studentId).map((link) => link.parentId);
+    return store.parentAccounts.filter((parent) => parentIds.includes(parent.id));
+  };
+
   const filterFeedbacks: SchoolDataContextType['filterFeedbacks'] = (items, period, category) => {
     return items.filter(item => {
       const periodOk = period === 'all' ? true : period === 'today' ? item.date === TODAY : sameWeek(item.date);
@@ -241,13 +487,23 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     assignments: store.assignments,
     submissions: store.submissions,
     learningProfiles: LEARNING_PROFILES,
+    parentAccounts: store.parentAccounts,
+    parentStudentLinks: store.parentStudentLinks,
+    scheduleAdjustments: store.scheduleAdjustments,
     setAttendance,
     createFeedback,
     markFeedbackRead,
     toggleReplyRequested,
     addFeedbackReply,
+    createParentAccount,
+    linkStudentToParent,
+    unlinkStudentFromParent,
+    updateClassSchedules,
+    resetClassSchedules,
+    getEffectiveSchedules,
+    getParentsOfStudent,
     filterFeedbacks,
-  }), [store.studentStatuses, store.feedbacks, store.assignments, store.submissions]);
+  }), [store.studentStatuses, store.feedbacks, store.assignments, store.submissions, store.parentAccounts, store.parentStudentLinks, store.scheduleAdjustments]);
 
   return (
     <SchoolDataContext.Provider value={value}>

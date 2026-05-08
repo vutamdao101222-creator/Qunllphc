@@ -16,12 +16,23 @@ import {
 
 export default function ParentPage() {
   const { user } = useAuth();
-  const { studentStatuses, feedbacks, submissions, assignments, markFeedbackRead, addFeedbackReply, filterFeedbacks } = useSchoolData();
+  const {
+    studentStatuses,
+    feedbacks,
+    submissions,
+    assignments,
+    parentAccounts,
+    parentStudentLinks,
+    scheduleAdjustments,
+    markFeedbackRead,
+    addFeedbackReply,
+    filterFeedbacks,
+    getEffectiveSchedules,
+  } = useSchoolData();
   const [activeTab, setActiveTab] = useState<'overview' | 'children' | 'schedule' | 'reports' | 'notifications'>('overview');
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
-<<<<<<< HEAD
   const [remoteParentData, setRemoteParentData] = useState<any | null>(null);
 
   React.useEffect(() => {
@@ -36,7 +47,7 @@ export default function ParentPage() {
     };
     load();
   }, []);
-=======
+
   const todayLabel = React.useMemo(
     () =>
       new Date().toLocaleDateString('vi-VN', {
@@ -47,11 +58,24 @@ export default function ParentPage() {
       }),
     []
   );
->>>>>>> 369f7aa4ba6d8232379c3c5dbb572117e7b679f5
 
-  // Parent sees all classes (or their child's classes in production)
-  const parentClassIds = user?.parentClassIds ?? ['c1', 'c4'];
-  const myClasses = CLASSES.filter(c => parentClassIds.includes(c.id));
+  const linkedParent = parentAccounts.find(
+    (item) => item.id === user?.id || (user?.username && item.username === user.username),
+  );
+  const linkedStudentIds = user?.id
+    ? parentStudentLinks.filter((link) => link.parentId === user.id).map((link) => link.studentId)
+    : (linkedParent
+      ? parentStudentLinks.filter((link) => link.parentId === linkedParent.id).map((link) => link.studentId)
+      : []);
+
+  // Prefer dynamic admin-linked data, fallback to static demo relation.
+  const myStudents = (linkedStudentIds.length > 0
+    ? SCHOOL_STUDENTS.filter((student) => linkedStudentIds.includes(student.id))
+    : SCHOOL_STUDENTS.filter((student) => student.parentUserId === user?.id));
+  const myStudentIds = myStudents.map((s) => s.id);
+  const myClassIds = [...new Set(myStudents.map((student) => student.classId))];
+  const myClasses = CLASSES.filter((c) => myClassIds.includes(c.id));
+
   const notifications = remoteParentData?.notifications?.length
     ? remoteParentData.notifications.map((n: any) => ({
       id: n.maThongBao,
@@ -61,9 +85,7 @@ export default function ParentPage() {
       date: new Date(n.thoiDiem).toLocaleDateString('vi-VN'),
       time: new Date(n.thoiDiem).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
     }))
-    : NOTIFICATIONS.filter(n => !n.classId || parentClassIds.includes(n.classId));
-  const myStudents = SCHOOL_STUDENTS.filter(student => student.parentUserId === user?.id);
-  const myStudentIds = myStudents.map(s => s.id);
+    : NOTIFICATIONS.filter(n => !n.classId || myClassIds.includes(n.classId));
   const myFeedbacks = useMemo(() => {
     const mine = feedbacks
       .filter(item => myStudentIds.includes(item.studentId))
@@ -102,7 +124,7 @@ export default function ParentPage() {
             { label: 'Lớp đang học', value: myClasses.filter(c => LIVE_DATA.find(l => l.classId === c.id && l.isActive)).length, icon: '📚' },
             { label: 'Học sinh hiện diện', value: myClasses.reduce((s, c) => s + (LIVE_DATA.find(l => l.classId === c.id && l.isActive)?.currentStudents ?? 0), 0), icon: '👥' },
             { label: 'Thông báo mới', value: unreadCount, icon: '🔔' },
-            { label: 'Buổi học tuần này', value: myClasses.reduce((s, c) => s + c.schedules.length, 0), icon: '📅' },
+            { label: 'Buổi học tuần này', value: myClasses.reduce((s, c) => s + getEffectiveSchedules(c.id, c.schedules).length, 0), icon: '📅' },
           ].map((item, i) => (
             <div key={i} className="bg-white/10 rounded-xl p-3">
               <div className="text-lg">{item.icon}</div>
@@ -207,7 +229,7 @@ export default function ParentPage() {
                       <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
                         <Clock size={12} /> Buổi/tuần
                       </div>
-                      <div className="font-semibold text-gray-800">{cls.schedules.length} buổi</div>
+                      <div className="font-semibold text-gray-800">{getEffectiveSchedules(cls.id, cls.schedules).length} buổi</div>
                     </div>
                   </div>
 
@@ -437,13 +459,13 @@ export default function ParentPage() {
               <Info size={15} />
               <span className="text-sm font-medium">Lịch học tuần 06/04 – 12/04/2026</span>
             </div>
-            <p className="text-xs text-blue-600">Lịch học có thể thay đổi. Vui lòng liên hệ giáo viên để xác nhận.</p>
+            <p className="text-xs text-blue-600">Lịch học có thể thay đổi theo điều chỉnh từ admin. Vui lòng kiểm tra thường xuyên.</p>
           </div>
 
           {['Thứ 2 (06/04)', 'Thứ 3 (07/04)', 'Thứ 4 (08/04)', 'Thứ 5 (09/04)', 'Thứ 6 (10/04)', 'Thứ 7 (11/04)'].map((dayLabel, di) => {
             const jsDay = di + 1; // Mon=1...Sat=6
             const dow = jsDay === 0 ? 1 : jsDay + 1; // our dayOfWeek
-            const dayClasses = myClasses.filter(c => c.schedules.some(s => s.dayOfWeek === dow));
+            const dayClasses = myClasses.filter(c => getEffectiveSchedules(c.id, c.schedules).some(s => s.dayOfWeek === dow));
 
             return (
               <div key={di} className={`bg-white rounded-xl border shadow-sm overflow-hidden ${di === 2 ? 'border-blue-300' : 'border-gray-200'}`}>
@@ -457,7 +479,9 @@ export default function ParentPage() {
                 ) : (
                   <div className="divide-y divide-gray-50">
                     {dayClasses.map(cls => {
-                      const sched = cls.schedules.find(s => s.dayOfWeek === dow);
+                      const effectiveSchedules = getEffectiveSchedules(cls.id, cls.schedules);
+                      const sched = effectiveSchedules.find(s => s.dayOfWeek === dow);
+                      const adjusted = scheduleAdjustments.some((item) => item.classId === cls.id);
                       const teacher = getTeacher(cls.teacherId);
                       const room = getRoom(cls.roomId);
                       const live = di === 2 ? LIVE_DATA.find(l => l.classId === cls.id) : null;
@@ -466,6 +490,7 @@ export default function ParentPage() {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-gray-800">{cls.name}</span>
+                              {adjusted && <span className="text-[11px] text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full">Lịch đã chỉnh</span>}
                               {live?.isActive && (
                                 <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">
                                   <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />

@@ -19,7 +19,19 @@ import { toast } from 'sonner';
 
 export default function ClassDetailPage() {
   const { user } = useAuth();
-  const { studentStatuses, feedbacks, assignments, submissions, learningProfiles, setAttendance, createFeedback, toggleReplyRequested, filterFeedbacks, addFeedbackReply } = useSchoolData();
+  const {
+    studentStatuses,
+    feedbacks,
+    assignments,
+    submissions,
+    learningProfiles,
+    setAttendance,
+    createFeedback,
+    toggleReplyRequested,
+    filterFeedbacks,
+    addFeedbackReply,
+    getParentsOfStudent,
+  } = useSchoolData();
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
   const cls = CLASSES.find(c => c.id === classId);
@@ -352,12 +364,16 @@ export default function ClassDetailPage() {
               </div>
               {classStudents.map(student => {
                 const status = studentStatuses.find(s => s.studentId === student.id && s.date === SCHOOL_TODAY);
+                const parents = getParentsOfStudent(student.id);
                 return (
                   <div key={student.id} className="border border-gray-200 rounded-lg p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-gray-800">{student.name}</p>
                         <p className="text-xs text-gray-500">Ngày {SCHOOL_TODAY}</p>
+                        <p className="text-xs text-indigo-600 mt-0.5">
+                          Phụ huynh liên kết: {parents.length ? parents.map((parent) => parent.name).join(', ') : 'Chưa liên kết'}
+                        </p>
                       </div>
                       <div className="text-xs text-gray-500">Giờ vào lớp: {status?.checkInTime ?? 'Chưa có'}</div>
                     </div>

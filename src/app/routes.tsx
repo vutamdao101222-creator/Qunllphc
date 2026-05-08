@@ -11,6 +11,7 @@ import ReportsPage from './pages/ReportsPage';
 import ClassManagementPage from './pages/ClassManagementPage';
 import TeacherManagementPage from './pages/TeacherManagementPage';
 import ParentPage from './pages/ParentPage';
+import AdminManagementPage from './pages/AdminManagementPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 
@@ -80,6 +81,14 @@ export const router = createBrowserRouter([
         element: (
           <AuthGuard allowedRoles={['admin']}>
             <TeacherManagementPage />
+          </AuthGuard>
+        ),
+      },
+      {
+        path: 'admin',
+        element: (
+          <AuthGuard allowedRoles={['admin']}>
+            <AdminManagementPage />
           </AuthGuard>
         ),
       },

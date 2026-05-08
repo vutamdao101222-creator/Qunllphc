@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { fetchReportSummary, getCsvExportUrl } from '../lib/api';
+import { useSchoolData } from '../context/SchoolDataContext';
 import {
   CLASSES, SESSION_REPORTS, LIVE_DATA,
   getTeacher, getConcentrationColor, getConcentrationBg
@@ -21,6 +22,7 @@ const SUBJECT_COLORS_MAP: Record<string, string> = {
 };
 
 export default function ReportsPage() {
+  const { scheduleAdjustments, getEffectiveSchedules } = useSchoolData();
   const [activeTab, setActiveTab] = useState<'overview' | 'byClass' | 'weekly' | 'monthly'>('overview');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [dateRange, setDateRange] = useState<'week' | 'month'>('week');
@@ -101,6 +103,9 @@ export default function ReportsPage() {
     ? Math.round(remoteSummary.totalStudents / Math.max(1, remoteSummary.activeClasses || 1))
     : Math.round(SESSION_REPORTS.reduce((s, r) => s + r.avgStudents, 0) / totalSessions);
   const lowConcSessions = remoteSummary?.alerts?.length ?? SESSION_REPORTS.filter(s => s.avgConcentration < 60).length;
+  const adjustedClassIds = new Set(scheduleAdjustments.map((item) => item.classId));
+  const classesWithAdjustedSchedule = CLASSES.filter((item) => adjustedClassIds.has(item.id)).length;
+  const totalScheduleSlots = CLASSES.reduce((sum, cls) => sum + getEffectiveSchedules(cls.id, cls.schedules).length, 0);
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -123,12 +128,13 @@ export default function ReportsPage() {
       {remoteError && <p className="text-xs text-amber-600">API báo cáo lỗi, đang dùng dữ liệu mock: {remoteError}</p>}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: 'Tổng buổi học', value: totalSessions, sub: 'Trong 2 tuần qua', color: 'text-blue-700', bg: 'bg-blue-50' },
           { label: 'Tập trung trung bình', value: `${overallAvgConc}%`, sub: getConcentrationBg(overallAvgConc).includes('green') ? 'Mức tốt' : 'Cần cải thiện', color: 'text-green-700', bg: 'bg-green-50' },
           { label: 'Sĩ số trung bình', value: `${overallAvgStudents} HS`, sub: 'Mỗi buổi học', color: 'text-indigo-700', bg: 'bg-indigo-50' },
           { label: 'Buổi tập trung thấp', value: lowConcSessions, sub: 'Dưới 60% tập trung', color: 'text-red-700', bg: 'bg-red-50' },
+          { label: 'Lớp đã chỉnh lịch', value: classesWithAdjustedSchedule, sub: `${totalScheduleSlots} ca học đang hiệu lực`, color: 'text-purple-700', bg: 'bg-purple-50' },
         ].map((item, i) => (
           <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
             <div className={`w-10 h-10 rounded-xl ${item.bg} flex items-center justify-center mb-3`}>
@@ -294,6 +300,7 @@ export default function ReportsPage() {
                         <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Lớp</th>
                         <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Giáo viên</th>
                         <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Số buổi</th>
+                        <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Lịch admin</th>
                         <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Sĩ số TB</th>
                         <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Tập trung TB</th>
                         <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Xu hướng</th>
@@ -308,6 +315,13 @@ export default function ReportsPage() {
                           </td>
                           <td className="px-4 py-3 text-gray-600">{item.teacher?.name}</td>
                           <td className="px-4 py-3 text-gray-700 font-medium">{item.sessions}</td>
+                          <td className="px-4 py-3">
+                            {adjustedClassIds.has(item.cls.id) ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700">Đã điều chỉnh</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">Mặc định</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-gray-700">{item.avgStudents} HS</td>
                           <td className="px-4 py-3">
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getConcentrationBg(item.avgConc)}`}>
