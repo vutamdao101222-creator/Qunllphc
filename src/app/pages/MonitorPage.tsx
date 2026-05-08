@@ -357,10 +357,11 @@ function MonitorDetail({ classId }: { classId: string }) {
 export default function MonitorPage() {
   const { classId } = useParams<{ classId: string }>();
   const [remoteLive, setRemoteLive] = useState<any[]>([]);
-
-  if (classId) return <MonitorDetail classId={classId} />;
+  const [filter, setFilter] = useState<'all' | 'alert'>('all');
 
   useEffect(() => {
+    if (classId) return;
+
     let mounted = true;
     const load = async () => {
       try {
@@ -386,7 +387,9 @@ export default function MonitorPage() {
       source.close();
       clearInterval(iv);
     };
-  }, []);
+  }, [classId]);
+
+  if (classId) return <MonitorDetail classId={classId} />;
 
   const normalizedRemote = remoteLive.map((item) => ({
     classId: item.maLop,
@@ -399,7 +402,6 @@ export default function MonitorPage() {
     last30MinStudents: [],
   }));
   const activeClasses = (normalizedRemote.length > 0 ? normalizedRemote : LIVE_DATA).filter(l => l.isActive);
-  const [filter, setFilter] = useState<'all' | 'alert'>('all');
 
   const displayed = filter === 'alert'
     ? activeClasses.filter(l => l.alertStatus !== 'normal')

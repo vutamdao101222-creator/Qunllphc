@@ -56,6 +56,16 @@ function ConcentrationBar({ value }: { value: number }) {
 }
 
 export default function DashboardPage() {
+  const nowLabel = React.useMemo(
+    () =>
+      new Date().toLocaleString('vi-VN', {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }),
+    []
+  );
   const { learningProfiles } = useSchoolData();
   const [remoteOverview, setRemoteOverview] = useState<any | null>(null);
   const [remoteError, setRemoteError] = useState('');
@@ -133,12 +143,16 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-gray-900">Tổng quan hệ thống</h1>
+<<<<<<< HEAD
           <p className="text-sm text-gray-500 mt-0.5">Thứ Tư, 08/04/2026 · Cập nhật mỗi 15 giây</p>
           {remoteError && (
             <p className="text-xs text-amber-600 mt-1">
               Đang dùng dữ liệu dự phòng do API lỗi: {remoteError}
             </p>
           )}
+=======
+          <p className="text-sm text-gray-500 mt-0.5">{nowLabel} · Cập nhật mỗi 15 giây</p>
+>>>>>>> 369f7aa4ba6d8232379c3c5dbb572117e7b679f5
         </div>
         <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />

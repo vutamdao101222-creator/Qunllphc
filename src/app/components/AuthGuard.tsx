@@ -20,7 +20,7 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/forbidden" replace />;
   }
 
   return <>{children}</>;

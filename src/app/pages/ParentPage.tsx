@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { SCHOOL_STUDENTS, SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { toast } from 'sonner';
 import {
   BookOpen, CalendarDays, Bell, Activity, Clock,
   Users, TrendingUp, Info, CheckCircle, AlertTriangle
@@ -20,6 +21,7 @@ export default function ParentPage() {
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+<<<<<<< HEAD
   const [remoteParentData, setRemoteParentData] = useState<any | null>(null);
 
   React.useEffect(() => {
@@ -34,6 +36,18 @@ export default function ParentPage() {
     };
     load();
   }, []);
+=======
+  const todayLabel = React.useMemo(
+    () =>
+      new Date().toLocaleDateString('vi-VN', {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }),
+    []
+  );
+>>>>>>> 369f7aa4ba6d8232379c3c5dbb572117e7b679f5
 
   // Parent sees all classes (or their child's classes in production)
   const parentClassIds = user?.parentClassIds ?? ['c1', 'c4'];
@@ -77,7 +91,7 @@ export default function ParentPage() {
             <p className="text-blue-100 text-sm mt-1">Theo dõi thông tin lớp học của con bạn</p>
           </div>
           <div className="text-right">
-            <div className="text-blue-100 text-xs">Thứ Tư, 08/04/2026</div>
+            <div className="text-blue-100 text-xs">{todayLabel}</div>
             <div className="mt-1 bg-white/20 rounded-lg px-3 py-1.5 text-xs font-medium">
               {myClasses.length} lớp theo dõi
             </div>
@@ -373,7 +387,10 @@ export default function ParentPage() {
                                   <button
                                     onClick={async () => {
                                       const text = (replyInputs[fb.id] ?? '').trim();
-                                      if (!text) return;
+                                      if (!text) {
+                                        toast.error('Vui lòng nhập nội dung phản hồi');
+                                        return;
+                                      }
                                       await addFeedbackReply(fb.id, {
                                         fromRole: 'parent',
                                         authorName: user?.name ?? 'Phụ huynh',
@@ -381,6 +398,7 @@ export default function ParentPage() {
                                         content: text,
                                       });
                                       setReplyInputs(prev => ({ ...prev, [fb.id]: '' }));
+                                      toast.success('Đã gửi phản hồi cho giáo viên');
                                     }}
                                     className="mt-2 bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700"
                                   >
