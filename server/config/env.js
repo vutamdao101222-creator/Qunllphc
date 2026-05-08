@@ -29,4 +29,5 @@ export const env = {
   },
   corsOrigin: process.env.CORS_ORIGIN || '*',
   simulationTickMs: Number(process.env.SIMULATION_TICK_MS || 15000),
+  sampleSeedCount: Number(process.env.SAMPLE_SEED_COUNT || 30),
 };

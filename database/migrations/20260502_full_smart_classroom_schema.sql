@@ -50,7 +50,13 @@ BEGIN
 END;
 GO
 
-IF COL_LENGTH('dbo.TaiKhoan', 'MậtKhẩuHash') IS NULL
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.TaiKhoan')
+      AND name = N'MậtKhẩuHash'
+)
 BEGIN
     ALTER TABLE dbo.TaiKhoan ADD [MậtKhẩuHash] NVARCHAR(255) NULL;
 END;

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from '../config/env.js';
 import { ensureDatabaseExists, getPool } from '../db.js';
+import { seedSampleData } from './seedSampleData.js';
 import { logInfo } from '../utils/logger.js';
 
 function splitSqlBatches(sqlText) {
@@ -47,5 +48,6 @@ export async function runMigrations() {
   }
 
   logInfo('Migrations completed', { files: sqlFiles.length });
+  await seedSampleData(pool, env.sampleSeedCount);
 }
 
