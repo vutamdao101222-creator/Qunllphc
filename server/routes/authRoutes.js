@@ -7,8 +7,8 @@ import { loginWithPassword, refreshAccessToken, registerUser } from '../services
 const router = Router();
 
 const loginSchema = z.object({
-  tenDangNhap: z.string().min(3),
-  matKhau: z.string().min(3),
+  tenDangNhap: z.preprocess((v) => String(v ?? '').trim(), z.string().min(1).max(50)),
+  matKhau: z.preprocess((v) => String(v ?? '').trim(), z.string().min(1).max(100)),
 });
 
 const registerSchema = z.object({

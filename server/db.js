@@ -1,21 +1,56 @@
-import sql from 'mssql';
+import baseMssql from 'mssql';
 import { env } from './config/env.js';
 import { logError } from './utils/logger.js';
 
-const sqlConfig = {
-  server: env.db.server,
-  database: env.db.database,
-  user: env.db.user,
-  password: env.db.password,
-  options: {
+/**
+ * Không import tĩnh mssql/msnodesqlv8 — module đó ghi đè driver global và làm mọi connect dùng ODBC.
+ */
+export const sql = env.db.windowsAuth
+  ? (await import('mssql/msnodesqlv8.js')).default
+  : baseMssql;
+
+function buildSqlConfig() {
+  const pool = {
+    max: 10,
+    min: 0,
+    idleTimeoutMillis: 30000,
+  };
+
+  const options = {
     encrypt: env.db.encrypt,
     trustServerCertificate: env.db.trustServerCertificate,
-  },
-};
+    connectTimeout: env.db.connectTimeout,
+    requestTimeout: env.db.requestTimeout,
+    enableArithAbort: true,
+  };
 
-if (env.db.port) {
-  sqlConfig.port = env.db.port;
+  if (env.db.windowsAuth) {
+    return {
+      server: env.db.server,
+      database: env.db.database,
+      options: {
+        ...options,
+        trustedConnection: true,
+      },
+      pool,
+    };
+  }
+
+  const cfg = {
+    server: env.db.server,
+    database: env.db.database,
+    user: env.db.user,
+    password: env.db.password,
+    options,
+    pool,
+  };
+  if (env.db.port) {
+    cfg.port = env.db.port;
+  }
+  return cfg;
 }
+
+const sqlConfig = buildSqlConfig();
 
 let poolPromise;
 
@@ -56,5 +91,3 @@ export function getPool() {
   }
   return poolPromise;
 }
-
-export { sql };

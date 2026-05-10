@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return {
           ok: false,
           message:
-            'Không kết nối được máy chủ API. Hãy chạy backend (ví dụ npm run api) và kiểm tra cổng 4000.',
+            'Không kết nối được API. Chạy backend (npm run api), mở firewall cổng 4000. Nếu vào bằng IP/điện thoại: IIS phải proxy /api → Node (web.config), hoặc build với VITE_API_BASE_URL=http://IP-MÁY-CHỦ:4000/api/v1.',
         };
       }
       return { ok: false, message: raw || 'Đăng nhập thất bại.' };

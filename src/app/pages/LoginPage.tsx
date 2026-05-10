@@ -32,9 +32,19 @@ export default function LoginPage() {
   };
 
   const fillDemo = (role: 'admin' | 'teacher' | 'parent') => {
-    if (role === 'admin') { setUsername('admin'); setPassword('admin123'); }
-    if (role === 'teacher') { setUsername('gv.nguyenan'); setPassword('teacher123'); }
-    if (role === 'parent') { setUsername('phuhuynha'); setPassword('parent123'); }
+    /* Khớp seed API (server/migrations/seedSampleData.js): admin/123456, không phải admin123 */
+    if (role === 'admin') {
+      setUsername('admin');
+      setPassword('123456');
+    }
+    if (role === 'teacher') {
+      setUsername('gv.nguyenan');
+      setPassword('teacher123');
+    }
+    if (role === 'parent') {
+      setUsername('phuhuynha');
+      setPassword('parent123');
+    }
     setError('');
   };
 
@@ -123,7 +133,13 @@ export default function LoginPage() {
 
           {/* Demo accounts */}
           <div className="mt-6 pt-6 border-t border-white/10">
-            <p className="text-slate-400 text-xs mb-3 text-center">Tài khoản demo:</p>
+            <p className="text-slate-400 text-xs mb-3 text-center">
+              Tài khoản demo:
+              <span className="block text-[11px] text-slate-500 mt-1 leading-snug px-2">
+                Nút <strong>Quản trị</strong> điền admin / <strong>123456</strong> (đúng với seed khi chạy API migrate). Nếu bạn tạo bằng
+                file SQL riêng mà ô <strong>MậtKhẩu</strong> trong SSMS là <strong>admin123</strong>, hãy gõ đúng giá trị đó.
+              </span>
+            </p>
             <div className="grid grid-cols-3 gap-2">
               {[
                 { role: 'admin' as const, label: 'Quản trị viên', color: 'from-purple-600/40 to-purple-700/40 border-purple-500/30' },

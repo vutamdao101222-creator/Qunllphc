@@ -7,8 +7,15 @@ import { logError, logInfo } from './utils/logger.js';
 async function main() {
   const app = createApp();
 
-  app.listen(env.apiPort, () => {
-    logInfo('API started', { port: env.apiPort, baseUrl: `http://localhost:${env.apiPort}` });
+  const server = app.listen(env.apiPort, env.apiHost, () => {
+    const addr = server.address();
+    const where = typeof addr === 'object' && addr ? `${addr.address}:${addr.port}` : String(addr);
+    logInfo('API started', {
+      host: env.apiHost,
+      port: env.apiPort,
+      listen: where,
+      baseUrlLocal: `http://127.0.0.1:${env.apiPort}`,
+    });
   });
 
   try {

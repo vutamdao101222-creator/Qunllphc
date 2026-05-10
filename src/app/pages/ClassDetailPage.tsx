@@ -7,7 +7,14 @@ import {
 } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
 import { SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
-import { fetchClass } from '../lib/api';
+import {
+  fetchClass,
+  fetchClassSuggestedStudentCodes,
+  fetchClassParentTeacherExchange,
+  postClassParentTeacherExchange,
+  fetchClassStudentAttendanceRecords,
+  postClassStudentAttendanceRecord,
+} from '../lib/api';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Cell
@@ -15,9 +22,14 @@ import {
 import {
   ArrowLeft, Users, Activity, Clock, BookOpen,
   CalendarDays, TrendingDown, TrendingUp, BarChart2, Send, MessageSquare, ClipboardCheck,
-  Plus, Pencil, Trash2, X,
+  Plus, Pencil, Trash2, X, Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+function toDatetimeLocalValue(d = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function parseFeedbackCategoryInput(text: string): 'praise' | 'reminder' | 'discipline' {
   const t = text.trim().toLowerCase();
@@ -81,7 +93,15 @@ export default function ClassDetailPage() {
   }, [classId, cls]);
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'sessions' | 'trends' | 'attendance' | 'students' | 'feedback' | 'assignments' | 'profiles'
+    | 'overview'
+    | 'sessions'
+    | 'trends'
+    | 'attendance'
+    | 'exchange'
+    | 'students'
+    | 'feedback'
+    | 'assignments'
+    | 'profiles'
   >('overview');
   const classStudents = cls ? students.filter(s => s.classId === cls.id) : [];
   const canSendFeedback = user?.role === 'teacher' || user?.role === 'admin';
@@ -99,15 +119,156 @@ export default function ClassDetailPage() {
   const [feedbackContent, setFeedbackContent] = useState('');
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
+  const [feedbackListSearch, setFeedbackListSearch] = useState('');
   const [teacherReplies, setTeacherReplies] = useState<Record<string, string>>({});
   const [profileEdits, setProfileEdits] = useState<Record<string, string>>({});
   const classAssignments = assignments.filter(a => a.classId === classId);
+  const [attendanceAt, setAttendanceAt] = useState(() => toDatetimeLocalValue());
+  const [apiAttendanceRows, setApiAttendanceRows] = useState<
+    Array<{
+      ma: number;
+      maLop: string;
+      maHocSinh: string;
+      thoiDiem: string;
+      trangThai: string;
+      ghiChu?: string | null;
+    }>
+  >([]);
+  const [suggestedMaHocSinh, setSuggestedMaHocSinh] = useState<string[]>([]);
+  const [exchangeList, setExchangeList] = useState<
+    Array<{
+      maTraoDoi: number;
+      maLop: string;
+      maHocSinh: string | null;
+      vaiTroGui: string;
+      tieuDe: string;
+      noiDung: string;
+      thoiDiem: string;
+      hoTenNguoiGui?: string;
+    }>
+  >([]);
+  const [exchangeFilterMaHs, setExchangeFilterMaHs] = useState('');
+  const [exchangeForm, setExchangeForm] = useState({
+    tieuDe: '',
+    noiDung: '',
+    thoiDiem: '',
+    maHocSinh: '' as string,
+  });
+  const [exchangeBusy, setExchangeBusy] = useState(false);
+  /** Trao đổi thật (SQL) — hiển thị trong tab «Nhận xét» để GV thấy phản hồi PH từ máy chủ */
+  const [feedbackApiThread, setFeedbackApiThread] = useState<
+    Array<{
+      maTraoDoi: number;
+      maLop: string;
+      maHocSinh: string | null;
+      vaiTroGui: string;
+      tieuDe: string;
+      noiDung: string;
+      thoiDiem: string;
+      hoTenNguoiGui?: string;
+    }>
+  >([]);
+  const [feedbackSyncToApi, setFeedbackSyncToApi] = useState(true);
+
+  React.useEffect(() => {
+    if (!cls || activeTab !== 'attendance') return;
+    let cancelled = false;
+    const maLop = cls.code;
+    const to = new Date();
+    const from = new Date(to.getTime() - 90 * 86400000);
+    (async () => {
+      try {
+        const [items, sug] = await Promise.all([
+          fetchClassStudentAttendanceRecords(maLop, { from: from.toISOString(), to: to.toISOString() }),
+          fetchClassSuggestedStudentCodes(maLop).catch(() => [] as string[]),
+        ]);
+        if (!cancelled) {
+          setApiAttendanceRows(items);
+          setSuggestedMaHocSinh(sug);
+        }
+      } catch {
+        if (!cancelled) {
+          setApiAttendanceRows([]);
+          setSuggestedMaHocSinh([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cls, activeTab]);
+
+  React.useEffect(() => {
+    if (!cls || activeTab !== 'exchange') return;
+    if (user?.role !== 'teacher' && user?.role !== 'admin') return;
+    let cancelled = false;
+    const maLop = cls.code;
+    const f = exchangeFilterMaHs.trim() || undefined;
+    fetchClassParentTeacherExchange(maLop, f)
+      .then((rows) => {
+        if (!cancelled) setExchangeList(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setExchangeList([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cls, activeTab, exchangeFilterMaHs, user?.role]);
+
+  React.useEffect(() => {
+    if (activeTab === 'exchange' && cls && (user?.role === 'teacher' || user?.role === 'admin')) {
+      setExchangeForm((prev) => ({ ...prev, thoiDiem: toDatetimeLocalValue() }));
+    }
+  }, [activeTab, cls, user?.role]);
+
+  React.useEffect(() => {
+    if (!cls || activeTab !== 'feedback') return;
+    if (user?.role !== 'teacher' && user?.role !== 'admin') return;
+    let cancelled = false;
+    fetchClassParentTeacherExchange(cls.code)
+      .then((rows) => {
+        if (!cancelled) setFeedbackApiThread(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setFeedbackApiThread([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cls, activeTab, user?.role]);
+
+  const attendanceStudentIds = useMemo(() => {
+    const fromLocal = new Set(classStudents.map((s) => s.id));
+    for (const c of suggestedMaHocSinh) fromLocal.add(c);
+    return [...fromLocal];
+  }, [classStudents, suggestedMaHocSinh]);
+
   const classFeedbacks = useMemo(() => {
     const items = feedbacks
       .filter(f => f.classId === classId)
       .sort((a, b) => b.date.localeCompare(a.date));
     return filterFeedbacks(items, feedbackPeriod, feedbackType);
   }, [classId, feedbackPeriod, feedbackType, feedbacks, filterFeedbacks]);
+
+  const classFeedbacksFiltered = useMemo(() => {
+    const q = feedbackListSearch.trim().toLowerCase();
+    if (!q) return classFeedbacks;
+    return classFeedbacks.filter((f) => {
+      const st = students.find((s) => s.id === f.studentId);
+      const name = (st?.name ?? '').toLowerCase();
+      const id = (st?.id ?? f.studentId).toLowerCase();
+      const title = (f.title ?? '').toLowerCase();
+      const body = (f.content ?? '').toLowerCase();
+      return name.includes(q) || id.includes(q) || title.includes(q) || body.includes(q);
+    });
+  }, [classFeedbacks, feedbackListSearch, students]);
+
+  const feedbackApiSorted = useMemo(() => {
+    return [...feedbackApiThread].sort(
+      (a, b) => new Date(b.thoiDiem).getTime() - new Date(a.thoiDiem).getTime(),
+    );
+  }, [feedbackApiThread]);
 
   const feedbackStudentMatches = useMemo(() => {
     const q = feedbackStudentSearch.trim().toLowerCase();
@@ -263,7 +424,14 @@ export default function ClassDetailPage() {
         </div>
       </div>
 
-      {/* Stats overview */}
+      {/* Stats overview — nguồn mock buổi học (SESSION_REPORTS), không gắn DB BuoiHoc/điểm danh SQL */}
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+        <strong>Dữ liệu tổng quan (4 thẻ dưới đây và biểu đồ các tab Tổng quan / Xu hướng)</strong> được tính từ{' '}
+        <strong>dữ liệu demo</strong> trong ứng dụng (chuỗi buổi học mẫu theo lớp mock), không đồng bộ với cơ sở
+        dữ liệu SQL. Để xem điểm danh / trao đổi thật, dùng tab{' '}
+        <strong>Điểm danh học sinh</strong> và <strong>Trao đổi PH (API)</strong> / <strong>Nhận xét phụ huynh</strong> (phần
+        máy chủ).
+      </p>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Tập trung TB', value: `${avgConc}%`, bg: getConcentrationBg(avgConc), trend: avgConc >= 70 ? 'up' : 'down' },
@@ -277,7 +445,7 @@ export default function ClassDetailPage() {
             </div>
             <div className="text-2xl font-bold text-gray-900">{stat.value}</div>
             <div className="text-xs text-gray-400 mt-1">
-              {sessions.length} buổi học gần nhất
+              {sessions.length} buổi học gần nhất (demo)
             </div>
           </div>
         ))}
@@ -291,6 +459,7 @@ export default function ClassDetailPage() {
             { key: 'sessions', label: 'Danh sách buổi học' },
             { key: 'trends', label: 'Xu hướng' },
             { key: 'attendance', label: 'Điểm danh học sinh' },
+            { key: 'exchange', label: 'Trao đổi PH (API)' },
             { key: 'students', label: 'Quản lý học sinh' },
             { key: 'feedback', label: 'Nhận xét phụ huynh' },
             { key: 'assignments', label: 'Bài tập & deadline' },
@@ -470,52 +639,101 @@ export default function ClassDetailPage() {
           )}
 
           {activeTab === 'attendance' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-                Giáo viên cập nhật điểm danh theo từng học sinh. Phụ huynh sẽ thấy ngay trạng thái hôm nay và giờ vào lớp.
+                Điểm danh theo học sinh: ghi vào{' '}
+                <strong>hệ thống (SQL)</strong> với <strong>thời điểm đã chọn</strong> hoặc giờ hiện tại. Demo cục bộ (ngày
+                {` ${SCHOOL_TODAY}`}) vẫn cập nhật song song để hiển thị trên các màn hình chỉ đọc mock.
                 {!canEditAttendance && (
-                  <span className="block mt-2 text-indigo-800">Bạn đang xem ở chế độ chỉ đọc — chỉ quản trị hoặc giáo viên mới chỉnh được điểm danh.</span>
+                  <span className="block mt-2 text-indigo-800">
+                    Bạn đang xem ở chế độ chỉ đọc — chỉ quản trị hoặc giáo viên mới chỉnh được điểm danh.
+                  </span>
                 )}
               </div>
-              {classStudents.map(student => {
-                const status = studentStatuses.find(s => s.studentId === student.id && s.date === SCHOOL_TODAY);
-                const parents = getParentsOfStudent(student.id);
+              {cls && (
+                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3 border border-gray-200 rounded-lg p-3 bg-gray-50/80">
+                  <div className="flex-1 min-w-[11rem]">
+                    <label className="block text-xs text-gray-500 mb-1">Thời điểm ghi điểm danh</label>
+                    <input
+                      type="datetime-local"
+                      value={attendanceAt}
+                      onChange={(e) => setAttendanceAt(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50"
+                    onClick={() => setAttendanceAt(toDatetimeLocalValue())}
+                  >
+                    Giờ hiện tại
+                  </button>
+                </div>
+              )}
+              {(attendanceStudentIds.length ? attendanceStudentIds : classStudents.map((s) => s.id)).map((sid) => {
+                const student = classStudents.find((s) => s.id === sid);
+                const label = student?.name ?? sid;
+                const status = studentStatuses.find((s) => s.studentId === sid && s.date === SCHOOL_TODAY);
+                const parents = student ? getParentsOfStudent(student.id) : [];
                 return (
-                  <div key={student.id} className="border border-gray-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between gap-3">
+                  <div key={sid} className="border border-gray-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div>
-                        <p className="text-sm font-semibold text-gray-800">{student.name}</p>
-                        <p className="text-xs text-gray-500">Ngày {SCHOOL_TODAY}</p>
-                        <p className="text-xs text-indigo-600 mt-0.5">
-                          Phụ huynh liên kết: {parents.length ? parents.map((parent) => parent.name).join(', ') : 'Chưa liên kết'}
-                        </p>
+                        <p className="text-sm font-semibold text-gray-800">{label}</p>
+                        <p className="text-xs text-gray-500 font-mono">Mã HS: {sid}</p>
+                        <p className="text-xs text-gray-500">Demo ngày: {SCHOOL_TODAY}</p>
+                        {student && (
+                          <p className="text-xs text-indigo-600 mt-0.5">
+                            Phụ huynh liên kết:{' '}
+                            {parents.length ? parents.map((parent) => parent.name).join(', ') : 'Chưa liên kết'}
+                          </p>
+                        )}
                       </div>
-                      <div className="text-xs text-gray-500">Giờ vào lớp: {status?.checkInTime ?? 'Chưa có'}</div>
+                      <div className="text-xs text-gray-500">Giờ vào lớp (demo): {status?.checkInTime ?? 'Chưa có'}</div>
                     </div>
                     <div className="grid sm:grid-cols-4 gap-2 mt-3">
                       {[
                         { value: 'present', label: 'Có mặt' },
                         { value: 'late', label: 'Đi muộn' },
                         { value: 'absent', label: 'Vắng' },
-                      ].map(item => (
+                      ].map((item) => (
                         <button
                           key={item.value}
                           type="button"
-                          disabled={!canEditAttendance}
-                          onClick={() => {
-                            if (!canEditAttendance) return;
+                          disabled={!canEditAttendance || !cls || !!user?.chiDoc}
+                          onClick={async () => {
+                            if (!canEditAttendance || !cls || user?.chiDoc) return;
+                            const thIso = new Date(attendanceAt).toISOString();
                             setAttendance({
-                              studentId: student.id,
+                              studentId: sid,
                               date: SCHOOL_TODAY,
                               attendance: item.value as 'present' | 'late' | 'absent',
-                              checkInTime: item.value === 'present' ? '06:55' : item.value === 'late' ? '07:10' : '',
+                              checkInTime:
+                                item.value === 'present' ? '06:55' : item.value === 'late' ? '07:10' : '',
                             });
+                            try {
+                              await postClassStudentAttendanceRecord(cls.code, {
+                                maHocSinh: sid,
+                                trangThai: item.value as 'present' | 'late' | 'absent',
+                                thoiDiem: thIso,
+                              });
+                              const to = new Date();
+                              const from = new Date(to.getTime() - 90 * 86400000);
+                              const rows = await fetchClassStudentAttendanceRecords(cls.code, {
+                                from: from.toISOString(),
+                                to: to.toISOString(),
+                              });
+                              setApiAttendanceRows(rows);
+                              toast.success('Đã lưu điểm danh vào hệ thống');
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : 'Không lưu được điểm danh API');
+                            }
                           }}
                           className={`text-xs px-3 py-2 rounded-lg border ${
                             status?.attendance === item.value
                               ? 'bg-blue-600 border-blue-600 text-white'
                               : 'bg-white border-gray-200 text-gray-600'
-                          } ${!canEditAttendance ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          } ${!canEditAttendance || user?.chiDoc ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           {item.label}
                         </button>
@@ -524,6 +742,189 @@ export default function ClassDetailPage() {
                   </div>
                 );
               })}
+              {cls && apiAttendanceRows.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Lịch sử điểm danh (API, 90 ngày gần nhất)</h4>
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 text-left text-gray-500">
+                          <th className="px-3 py-2">Thời điểm</th>
+                          <th className="px-3 py-2">Mã HS</th>
+                          <th className="px-3 py-2">Trạng thái</th>
+                          <th className="px-3 py-2">Ghi chú</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {apiAttendanceRows.slice(0, 80).map((r) => (
+                          <tr key={r.ma} className="border-t border-gray-100">
+                            <td className="px-3 py-2 text-gray-700 whitespace-nowrap">
+                              {new Date(r.thoiDiem).toLocaleString('vi-VN')}
+                            </td>
+                            <td className="px-3 py-2 font-mono">{r.maHocSinh}</td>
+                            <td className="px-3 py-2">
+                              {r.trangThai === 'present' ? 'Có mặt' : r.trangThai === 'late' ? 'Muộn' : 'Vắng'}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500">{r.ghiChu ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'exchange' && cls && (
+            <div className="space-y-4">
+              {user?.role !== 'teacher' && user?.role !== 'admin' ? (
+                <p className="text-sm text-gray-500">Chỉ giáo viên hoặc quản trị xem và gửi trao đổi theo lớp tại đây.</p>
+              ) : (
+                <>
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-800">
+                    Trao đổi hai chiều với phụ huynh theo mã lớp <strong>{cls.code}</strong>. Tin nhắn lưu trong bảng{' '}
+                    <code className="text-xs">TraoDoiPhHuynhGiaoVien</code>.
+                  </div>
+                  <div className="flex flex-wrap gap-3 items-end">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Lọc theo mã HS (tuỳ chọn)</label>
+                      <input
+                        value={exchangeFilterMaHs}
+                        onChange={(e) => setExchangeFilterMaHs(e.target.value)}
+                        placeholder="Để trống = cả lớp"
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-48"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-[22rem] overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50/60">
+                    {exchangeList.length === 0 ? (
+                      <p className="text-sm text-gray-500">Chưa có tin trao đổi hoặc chưa tải được dữ liệu.</p>
+                    ) : (
+                      exchangeList.map((m) => (
+                        <div
+                          key={m.maTraoDoi}
+                          className={`rounded-lg p-3 border ${
+                            m.vaiTroGui === 'teacher' ? 'bg-white border-blue-100' : 'bg-green-50/80 border-green-100'
+                          }`}
+                        >
+                          <div className="flex justify-between gap-2 text-xs text-gray-500">
+                            <span>{m.vaiTroGui === 'teacher' ? 'Giáo viên' : 'Phụ huynh'}</span>
+                            <span>{new Date(m.thoiDiem).toLocaleString('vi-VN')}</span>
+                          </div>
+                          <p className="text-sm font-semibold text-gray-800 mt-1">{m.tieuDe}</p>
+                          <p className="text-xs text-gray-400 font-mono">
+                            {m.maHocSinh ? `HS: ${m.maHocSinh}` : 'Cả lớp / không gắn HS'}
+                          </p>
+                          <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{m.noiDung}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {!user?.chiDoc && (
+                    <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-white">
+                      <h4 className="text-sm font-medium text-gray-800">Gửi tin đến phụ huynh</h4>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-gray-500 mb-1">Gắn mã học sinh (tuỳ chọn)</label>
+                          <select
+                            value={exchangeForm.maHocSinh}
+                            onChange={(e) =>
+                              setExchangeForm((prev) => ({ ...prev, maHocSinh: e.target.value }))
+                            }
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                          >
+                            <option value="">— Cả lớp hoặc chung —</option>
+                            {attendanceStudentIds.map((id) => (
+                              <option key={id} value={id}>
+                                {classStudents.find((s) => s.id === id)?.name ?? id}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-gray-500 mb-1">Thời điểm hiển thị tin</label>
+                          <input
+                            type="datetime-local"
+                            value={exchangeForm.thoiDiem}
+                            onChange={(e) =>
+                              setExchangeForm((prev) => ({ ...prev, thoiDiem: e.target.value }))
+                            }
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="button"
+                            className="text-xs text-blue-600 mt-1 hover:underline"
+                            onClick={() =>
+                              setExchangeForm((prev) => ({ ...prev, thoiDiem: toDatetimeLocalValue() }))
+                            }
+                          >
+                            Đặt giờ hiện tại
+                          </button>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-gray-500 mb-1">Tiêu đề</label>
+                          <input
+                            value={exchangeForm.tieuDe}
+                            onChange={(e) =>
+                              setExchangeForm((prev) => ({ ...prev, tieuDe: e.target.value }))
+                            }
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs text-gray-500 mb-1">Nội dung</label>
+                          <textarea
+                            value={exchangeForm.noiDung}
+                            onChange={(e) =>
+                              setExchangeForm((prev) => ({ ...prev, noiDung: e.target.value }))
+                            }
+                            rows={3}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={exchangeBusy}
+                        className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+                        onClick={async () => {
+                          const noi = exchangeForm.noiDung.trim();
+                          if (!noi) {
+                            toast.error('Nhập nội dung');
+                            return;
+                          }
+                          setExchangeBusy(true);
+                          try {
+                            const thIso = exchangeForm.thoiDiem.trim()
+                              ? new Date(exchangeForm.thoiDiem).toISOString()
+                              : new Date().toISOString();
+                            await postClassParentTeacherExchange(cls.code, {
+                              maHocSinh: exchangeForm.maHocSinh.trim() || null,
+                              tieuDe: exchangeForm.tieuDe.trim() || undefined,
+                              noiDung: noi,
+                              thoiDiem: thIso,
+                            });
+                            setExchangeForm((prev) => ({ ...prev, tieuDe: '', noiDung: '', thoiDiem: toDatetimeLocalValue() }));
+                            const rows = await fetchClassParentTeacherExchange(
+                              cls.code,
+                              exchangeFilterMaHs.trim() || undefined,
+                            );
+                            setExchangeList(rows);
+                            toast.success('Đã gửi trao đổi');
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : 'Không gửi được');
+                          } finally {
+                            setExchangeBusy(false);
+                          }
+                        }}
+                      >
+                        Gửi
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -757,9 +1158,99 @@ export default function ClassDetailPage() {
 
           {activeTab === 'feedback' && (
             <div className="space-y-4">
+              {(user?.role === 'teacher' || user?.role === 'admin') && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-semibold text-emerald-900">
+                        Phản hồi phụ huynh qua máy chủ (đồng bộ SQL)
+                      </h4>
+                      <p className="text-xs text-emerald-900/90 mt-1 leading-relaxed max-w-3xl">
+                        Phụ huynh gửi tin ở trang <strong>Phụ huynh → Trao đổi GV &amp; điểm danh</strong> được lưu bảng{' '}
+                        <code className="text-[11px] bg-white/70 px-1 rounded">TraoDoiPhHuynhGiaoVien</code> theo mã lớp{' '}
+                        <strong>{cls.code}</strong> — hiển thị luôn tại đây. Phần nhận xét dạng khen/nhắc (ô xám bên dưới)
+                        chỉ nằm trong <strong>trình duyệt này</strong>, nên máy khác hoặc phụ huynh đăng nhập thật sẽ không
+                        thấy trừ khi bạn bật «Đồng thời đẩy…» khi gửi.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs shrink-0 px-3 py-1.5 rounded-lg border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100/80"
+                      onClick={async () => {
+                        try {
+                          const rows = await fetchClassParentTeacherExchange(cls.code);
+                          setFeedbackApiThread(rows);
+                          toast.success('Đã làm mới tin từ máy chủ');
+                        } catch {
+                          toast.error('Không tải được trao đổi — kiểm tra quyền GV lớp hoặc API.');
+                        }
+                      }}
+                    >
+                      Làm mới
+                    </button>
+                  </div>
+                  {feedbackApiSorted.filter((m) => m.vaiTroGui === 'parent').length === 0 &&
+                  feedbackApiSorted.length === 0 ? (
+                    <p className="text-sm text-emerald-800">
+                      Chưa có trao đổi API cho lớp <strong>{cls.code}</strong>.
+                    </p>
+                  ) : feedbackApiSorted.filter((m) => m.vaiTroGui === 'parent').length === 0 ? (
+                    <p className="text-sm text-emerald-800">
+                      Chưa có tin từ <strong>phụ huynh</strong>; chỉ có tin giáo viên gửi qua API (xem bên dưới).
+                    </p>
+                  ) : null}
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {feedbackApiSorted.map((m) => (
+                      <div
+                        key={m.maTraoDoi}
+                        className={`rounded-lg border p-3 text-sm ${
+                          m.vaiTroGui === 'parent'
+                            ? 'bg-white border-emerald-300 shadow-sm'
+                            : 'bg-white/60 border-emerald-100'
+                        }`}
+                      >
+                        <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                          <span>
+                            {m.vaiTroGui === 'parent' ? (
+                              <span className="font-semibold text-emerald-800">Phụ huynh</span>
+                            ) : (
+                              <span className="font-medium text-blue-800">Giáo viên / quản trị</span>
+                            )}
+                            {m.maHocSinh ? (
+                              <span className="ml-2 font-mono text-gray-600">· HS {m.maHocSinh}</span>
+                            ) : null}
+                            {m.hoTenNguoiGui ? <span className="ml-1">· {m.hoTenNguoiGui}</span> : null}
+                          </span>
+                          <span className="whitespace-nowrap">{new Date(m.thoiDiem).toLocaleString('vi-VN')}</span>
+                        </div>
+                        <p className="font-semibold text-gray-900 mt-1">{m.tieuDe}</p>
+                        <p className="text-gray-700 mt-1 whitespace-pre-wrap">{m.noiDung}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {canSendFeedback && (
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                  <h4 className="font-medium text-gray-800 mb-3">Gửi nhận xét đến phụ huynh</h4>
+                  <h4 className="font-medium text-gray-800 mb-3">Gửi nhận xét đến phụ huynh (lưu cục bộ)</h4>
+                  <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+                    Ô dưới đây thêm mục vào danh sách <strong>demo trong trình duyệt</strong> (thông báo khen / nhắc). Để phụ
+                    huynh đang dùng tài khoản thật đọc được trên tab «Trao đổi» của họ, hãy bật tùy chọn đẩy lên máy chủ.
+                  </p>
+                  <label className="flex items-start gap-2 text-sm text-gray-800 mb-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-gray-300"
+                      checked={feedbackSyncToApi}
+                      onChange={(e) => setFeedbackSyncToApi(e.target.checked)}
+                      disabled={!!user?.chiDoc}
+                    />
+                    <span>
+                      <strong>Đồng thời đẩy lên máy chủ</strong> (trao đổi API, mã lớp {cls.code}) — phụ huynh xem được
+                      khi đăng nhập qua hệ thống.
+                    </span>
+                  </label>
                   <div className="grid md:grid-cols-2 gap-3">
                     <div className="relative">
                       <label className="block text-xs text-gray-500 mb-1">Học sinh</label>
@@ -853,6 +1344,8 @@ export default function ClassDetailPage() {
                         return;
                       }
                       const category = parseFeedbackCategoryInput(feedbackCategoryInput);
+                      const catLabel =
+                        category === 'praise' ? 'Khen ngợi' : category === 'reminder' ? 'Nhắc nhở' : 'Phê bình';
                       await createFeedback({
                         studentId: sid,
                         classId,
@@ -862,11 +1355,29 @@ export default function ClassDetailPage() {
                         title: feedbackTitle.trim(),
                         content: feedbackContent.trim(),
                       });
+                      if (feedbackSyncToApi && !user?.chiDoc) {
+                        try {
+                          await postClassParentTeacherExchange(cls.code, {
+                            maHocSinh: sid,
+                            tieuDe: feedbackTitle.trim(),
+                            noiDung: `[${catLabel}] ${feedbackContent.trim()}`,
+                            thoiDiem: new Date().toISOString(),
+                          });
+                          const rows = await fetchClassParentTeacherExchange(cls.code);
+                          setFeedbackApiThread(rows);
+                          toast.success('Đã lưu nhận xét (demo) và đã gửi bản lên máy chủ');
+                        } catch (e) {
+                          toast.warning(
+                            `Đã lưu nhận xét trên trình duyệt; không gửi được lên máy chủ: ${e instanceof Error ? e.message : 'lỗi'}. Kiểm tra mã lớp ${cls.code} trong SQL và quyền giáo viên phụ trách lớp.`,
+                          );
+                        }
+                      } else {
+                        toast.success('Đã gửi nhận xét đến phụ huynh (chỉ trong trình duyệt)');
+                      }
                       setFeedbackTitle('');
                       setFeedbackContent('');
                       setFeedbackStudentSearch('');
                       setFeedbackCategoryInput('');
-                      toast.success('Đã gửi nhận xét đến phụ huynh');
                     }}
                     className="mt-3 inline-flex items-center gap-1.5 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                   >
@@ -876,7 +1387,7 @@ export default function ClassDetailPage() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={feedbackPeriod}
                   onChange={e => setFeedbackPeriod(e.target.value as 'today' | 'week' | 'all')}
@@ -896,6 +1407,17 @@ export default function ClassDetailPage() {
                   <option value="reminder">Nhắc nhở</option>
                   <option value="discipline">Phê bình</option>
                 </select>
+                <div className="relative flex-1 min-w-[12rem] max-w-md">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={feedbackListSearch}
+                    onChange={(e) => setFeedbackListSearch(e.target.value)}
+                    placeholder="Tìm theo tên / mã HS, tiêu đề hoặc nội dung…"
+                    className="w-full border border-gray-200 rounded-lg pl-8 pr-2 py-1.5 text-xs"
+                    aria-label="Tìm nhận xét trong danh sách"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -904,8 +1426,13 @@ export default function ClassDetailPage() {
                     <MessageSquare size={30} className="mx-auto mb-2 opacity-40" />
                     Chưa có nhận xét nào cho lớp này.
                   </div>
+                ) : classFeedbacksFiltered.length === 0 ? (
+                  <div className="text-center text-gray-400 py-8 bg-white border border-gray-200 rounded-xl">
+                    <Search size={30} className="mx-auto mb-2 opacity-40" />
+                    Không có nhận xét khớp “{feedbackListSearch.trim()}”.
+                  </div>
                 ) : (
-                  classFeedbacks.map(item => {
+                  classFeedbacksFiltered.map(item => {
                     const student = students.find(s => s.id === item.studentId);
                     return (
                       <div key={item.id} className="border border-gray-200 rounded-lg p-3">

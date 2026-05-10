@@ -14,7 +14,67 @@ export interface ApiUser {
   maGiaoVien?: string | null;
 }
 
-export const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL as string | undefined;
+
+function configuredApiBase(): string {
+  if (RAW_API_BASE === undefined || RAW_API_BASE === null || String(RAW_API_BASE).trim() === '') {
+    return 'http://localhost:4000/api/v1';
+  }
+  return String(RAW_API_BASE).trim().replace(/\/$/, '');
+}
+
+/**
+ * Gốc API cho REST, SSE, CSV.
+ * - Tuyệt đối: `http://IP:4000/api/v1` hoặc `https://ten-mien/api/v1`
+ * - Tương đối `/api/v1`: dev → Vite proxy (mở trang qua **:5173**); prod http:80 trên LAN → tự thêm **:4000**.
+ */
+export function resolveApiBaseUrl(): string {
+  const base = configuredApiBase();
+  if (typeof window === 'undefined') return base;
+
+  // /api/v1 — không gắn http(s)://
+  if (base.startsWith('/')) {
+    if (import.meta.env.DEV) {
+      return base;
+    }
+    const proto = window.location.protocol;
+    const host = window.location.hostname;
+    const port = window.location.port;
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    if (proto === 'https:') {
+      return `${window.location.origin}${base}`.replace(/\/$/, '');
+    }
+    if (!isLocal && (port === '' || port === '80')) {
+      return `http://${host}:4000${base}`.replace(/\/$/, '');
+    }
+    return base;
+  }
+
+  if (!base.startsWith('http://') && !base.startsWith('https://')) return base;
+
+  try {
+    const { hostname } = new URL(base);
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') return base;
+    const pageHost = window.location.hostname;
+    if (pageHost === 'localhost' || pageHost === '127.0.0.1') return base;
+
+    if (window.location.protocol === 'https:') {
+      return `${window.location.origin}/api/v1`.replace(/\/$/, '');
+    }
+    const p = window.location.protocol === 'http:' ? 'http:' : window.location.protocol;
+    return `${p}//${pageHost}:4000/api/v1`.replace(/\/$/, '');
+  } catch {
+    return base;
+  }
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
+
+function apiUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return `${resolveApiBaseUrl()}${p}`;
+}
+
 const ACCESS_TOKEN_KEY = 'edu_access_token';
 const REFRESH_TOKEN_KEY = 'edu_refresh_token';
 
@@ -42,7 +102,7 @@ async function request(path: string, init: RequestInit = {}) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(apiUrl(path), {
     ...init,
     // Tránh 304 + body rỗng từ HTTP cache (Chrome có thể cache GET API) → màn hình 0 lớp / JSON null.
     cache: init.cache ?? 'no-store',
@@ -58,7 +118,10 @@ async function request(path: string, init: RequestInit = {}) {
   }
 
   if (!response.ok) {
-    const message = data?.message || `API error: ${response.status}`;
+    let message = data?.message || `API error: ${response.status}`;
+    if (response.status === 404 && typeof message === 'string' && message.startsWith('API error')) {
+      message += `. URL API: ${resolveApiBaseUrl()}. Dev: mở http://IP:5173 (npm run dev). Hoặc IIS proxy /api → Node, hoặc VITE_API_BASE_URL=http://IP:4000/api/v1.`;
+    }
     throw new Error(message);
   }
 
@@ -87,9 +150,24 @@ export async function fetchRealtimeClasses() {
   return request('/monitor/thoi-gian-thuc');
 }
 
-/** SSE endpoint (no auth) — same origin as API_BASE_URL */
+export async function fetchRoboflowFocusConfig() {
+  return request('/ai/focus/cau-hinh');
+}
+
+export async function postRoboflowFocusWorkflow(body: {
+  maLop?: string;
+  source?: 'webcam' | 'image_upload' | 'video_upload' | 'stream_http' | 'rtsp' | 'unknown';
+  imageBase64?: string;
+}) {
+  return request('/ai/focus/workflow', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** SSE endpoint (no auth) — cùng gốc với các request API */
 export function getMonitorStreamUrl() {
-  return `${API_BASE_URL}/monitor/stream`;
+  return apiUrl('/monitor/stream');
 }
 
 export async function fetchReportSummary() {
@@ -224,6 +302,94 @@ export async function fetchClass(maLop: string) {
   return request(`/lop-hoc/${encodeURIComponent(maLop)}`);
 }
 
+export async function fetchClassSuggestedStudentCodes(maLop: string): Promise<string[]> {
+  const data = await request(`/lop-hoc/${encodeURIComponent(maLop)}/goi-y-ma-hoc-sinh`);
+  return (data.items ?? []) as string[];
+}
+
+export async function fetchClassParentTeacherExchange(maLop: string, maHocSinh?: string) {
+  const qs = maHocSinh ? `?maHocSinh=${encodeURIComponent(maHocSinh)}` : '';
+  const data = await request(`/lop-hoc/${encodeURIComponent(maLop)}/trao-doi${qs}`);
+  return data.items ?? [];
+}
+
+export async function postClassParentTeacherExchange(
+  maLop: string,
+  body: {
+    maHocSinh?: string | null;
+    tieuDe?: string;
+    noiDung: string;
+    thoiDiem?: string;
+  },
+) {
+  return request(`/lop-hoc/${encodeURIComponent(maLop)}/trao-doi`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchClassStudentAttendanceRecords(
+  maLop: string,
+  params?: { maHocSinh?: string; from?: string; to?: string },
+) {
+  const sp = new URLSearchParams();
+  if (params?.maHocSinh) sp.set('maHocSinh', params.maHocSinh);
+  if (params?.from) sp.set('from', params.from);
+  if (params?.to) sp.set('to', params.to);
+  const qs = sp.toString();
+  const data = await request(
+    `/lop-hoc/${encodeURIComponent(maLop)}/diem-danh-hoc-sinh${qs ? `?${qs}` : ''}`,
+  );
+  return data.items ?? [];
+}
+
+export async function postClassStudentAttendanceRecord(
+  maLop: string,
+  body: {
+    maHocSinh: string;
+    trangThai: 'present' | 'late' | 'absent';
+    thoiDiem?: string;
+    ghiChu?: string;
+  },
+) {
+  return request(`/lop-hoc/${encodeURIComponent(maLop)}/diem-danh-hoc-sinh`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchParentParentTeacherExchange() {
+  const data = await request('/phu-huynh/trao-doi');
+  return data.items ?? [];
+}
+
+export async function postParentParentTeacherExchange(body: {
+  maLop: string;
+  maHocSinh: string;
+  tieuDe?: string;
+  noiDung: string;
+  thoiDiem?: string;
+}) {
+  return request('/phu-huynh/trao-doi', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchParentStudentAttendanceRecords(params?: {
+  from?: string;
+  to?: string;
+  maHocSinh?: string;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.from) sp.set('from', params.from);
+  if (params?.to) sp.set('to', params.to);
+  if (params?.maHocSinh) sp.set('maHocSinh', params.maHocSinh);
+  const qs = sp.toString();
+  const data = await request(`/phu-huynh/diem-danh-hoc-sinh${qs ? `?${qs}` : ''}`);
+  return data.items ?? [];
+}
+
 export async function fetchClassesPage(params: { page?: number; pageSize?: number; q?: string } = {}) {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
@@ -283,5 +449,5 @@ export async function fetchParentSummary(fromIso: string, toIso: string) {
 }
 
 export function getCsvExportUrl() {
-  return `${API_BASE_URL}/bao-cao/xuat-csv`;
+  return apiUrl('/bao-cao/xuat-csv');
 }

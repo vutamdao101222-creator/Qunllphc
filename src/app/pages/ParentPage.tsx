@@ -1,5 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { fetchParentOverview, fetchParentSummary } from '../lib/api';
+import {
+  fetchParentOverview,
+  fetchParentSummary,
+  fetchMyParentLinks,
+  fetchParentParentTeacherExchange,
+  postParentParentTeacherExchange,
+  fetchParentStudentAttendanceRecords,
+} from '../lib/api';
 import {
   CLASSES, LIVE_DATA, NOTIFICATIONS, SESSION_REPORTS,
   getTeacher, getRoom, getConcentrationBg, getConcentrationLabel,
@@ -11,8 +18,23 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { toast } from 'sonner';
 import {
   BookOpen, CalendarDays, Bell, Activity, Clock,
-  Users, TrendingUp, Info, CheckCircle, AlertTriangle
+  Users, TrendingUp, Info, CheckCircle, AlertTriangle, MessageSquare,
 } from 'lucide-react';
+
+import type { StudentProfile } from '../data/mockData';
+
+function resolveExchangeTargetForStudent(
+  studentId: string,
+  links: Array<{ studentId: string; maLop: string | null }>,
+  allStudents: StudentProfile[],
+): { maLop: string; maHocSinh: string } | null {
+  const withLop = links.find((l) => l.studentId === studentId && l.maLop);
+  if (withLop?.maLop) return { maLop: withLop.maLop, maHocSinh: withLop.studentId };
+  const st = allStudents.find((s) => s.id === studentId);
+  const clsMeta = st && CLASSES.find((c) => c.id === st.classId);
+  if (!clsMeta) return null;
+  return { maLop: clsMeta.code, maHocSinh: studentId };
+}
 
 export default function ParentPage() {
   const { user } = useAuth();
@@ -30,12 +52,82 @@ export default function ParentPage() {
     filterFeedbacks,
     getEffectiveSchedules,
   } = useSchoolData();
-  const [activeTab, setActiveTab] = useState<'overview' | 'children' | 'schedule' | 'reports' | 'notifications'>('overview');
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'children' | 'schedule' | 'reports' | 'notifications' | 'comms'
+  >('overview');
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
   const [remoteParentData, setRemoteParentData] = useState<any | null>(null);
   const [periodReport, setPeriodReport] = useState<any | null>(null);
+  const [apiLinks, setApiLinks] = useState<
+    Array<{ id: string; studentId: string; maLop: string | null; relationship?: string }>
+  >([]);
+  const [apiExchanges, setApiExchanges] = useState<
+    Array<{
+      maTraoDoi: number;
+      maLop: string;
+      maHocSinh: string | null;
+      vaiTroGui: string;
+      tieuDe: string;
+      noiDung: string;
+      thoiDiem: string;
+      hoTenNguoiGui?: string;
+    }>
+  >([]);
+  const [apiAttDetail, setApiAttDetail] = useState<
+    Array<{ ma: number; maLop: string; maHocSinh: string; thoiDiem: string; trangThai: string; ghiChu?: string | null }>
+  >([]);
+  const [commsSel, setCommsSel] = useState<{ maLop: string; maHocSinh: string } | null>(null);
+  const [commsCompose, setCommsCompose] = useState({ tieuDe: '', noiDung: '', thoiDiem: '' });
+
+  function toDatetimeLocalValue(d = new Date()) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  React.useEffect(() => {
+    if (user?.role !== 'parent' && user?.role !== 'admin') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const linksRes = await fetchMyParentLinks();
+        if (!cancelled) setApiLinks(linksRes.items ?? []);
+      } catch {
+        if (!cancelled) setApiLinks([]);
+      }
+      try {
+        const att = await fetchParentStudentAttendanceRecords();
+        if (!cancelled) setApiAttDetail(att);
+      } catch {
+        if (!cancelled) setApiAttDetail([]);
+      }
+      try {
+        const ex = await fetchParentParentTeacherExchange();
+        if (!cancelled) setApiExchanges(ex);
+      } catch {
+        if (!cancelled) setApiExchanges([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.role]);
+
+  React.useEffect(() => {
+    if (apiLinks.length === 0) return;
+    setCommsSel((prev) => {
+      if (prev) return prev;
+      const first = apiLinks.find((l) => l.maLop && l.studentId);
+      if (!first?.maLop) return prev;
+      return { maLop: first.maLop, maHocSinh: first.studentId };
+    });
+  }, [apiLinks]);
+
+  React.useEffect(() => {
+    if (activeTab !== 'comms' || (user?.role !== 'parent' && user?.role !== 'admin')) return;
+    setCommsCompose((c) => ({ ...c, thoiDiem: toDatetimeLocalValue() }));
+  }, [activeTab, user?.role]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -183,6 +275,15 @@ export default function ParentPage() {
         {[
           { key: 'overview', label: 'Tổng quan', icon: <Activity size={14} /> },
           { key: 'children', label: 'Học sinh của tôi', icon: <Users size={14} /> },
+          ...(user?.role === 'parent' || user?.role === 'admin'
+            ? ([
+                {
+                  key: 'comms',
+                  label: 'Trao đổi GV & điểm danh',
+                  icon: <MessageSquare size={14} />,
+                },
+              ] as const)
+            : []),
           { key: 'schedule', label: 'Lịch học', icon: <CalendarDays size={14} /> },
           { key: 'reports', label: 'Báo cáo lớp', icon: <TrendingUp size={14} /> },
           { key: 'notifications', label: `Thông báo${unreadCount > 0 ? ` (${unreadCount})` : ''}`, icon: <Bell size={14} /> },
@@ -469,6 +570,12 @@ export default function ParentPage() {
                               {fb.replyRequested && (
                                 <div className="mt-2 border-t border-gray-100 pt-2">
                                   <p className="text-xs text-amber-700 mb-1">Giáo viên đang xin phản hồi từ phụ huynh</p>
+                                  <p className="text-[11px] text-gray-500 mb-1.5 leading-snug">
+                                    Phản hồi được lưu trong trình duyệt; nếu tài khoản đã liên kết lớp trên máy chủ, hệ thống
+                                    đồng gửi bản vào{' '}
+                                    <strong className="font-medium text-gray-600">khối «Phản hồi phụ huynh qua máy chủ»</strong>{' '}
+                                    ở trang chi tiết lớp (GV bấm Làm mới).
+                                  </p>
                                   <textarea
                                     rows={2}
                                     value={replyInputs[fb.id] ?? ''}
@@ -490,7 +597,38 @@ export default function ParentPage() {
                                         content: text,
                                       });
                                       setReplyInputs(prev => ({ ...prev, [fb.id]: '' }));
-                                      toast.success('Đã gửi phản hồi cho giáo viên');
+
+                                      const target = resolveExchangeTargetForStudent(fb.studentId, apiLinks, students);
+                                      if (!target) {
+                                        toast.success(
+                                          'Đã lưu phản hồi trên trình duyệt; chưa đồng bộ máy chủ (thiếu mã lớp/liên kết).',
+                                        );
+                                        return;
+                                      }
+                                      try {
+                                        await postParentParentTeacherExchange({
+                                          maLop: target.maLop,
+                                          maHocSinh: target.maHocSinh,
+                                          tieuDe: fb.title?.trim()
+                                            ? `Phản hồi nhận xét: ${fb.title.trim()}`
+                                            : 'Phản hồi nhận xét giáo viên',
+                                          noiDung: text,
+                                          thoiDiem: new Date().toISOString(),
+                                        });
+                                        try {
+                                          const ex = await fetchParentParentTeacherExchange();
+                                          setApiExchanges(ex);
+                                        } catch {
+                                          // ignore
+                                        }
+                                        toast.success(
+                                          'Đã gửi phản hồi; giáo viên xem ở Nhận xét lớp → khối đồng bộ SQL (bấm Làm mới).',
+                                        );
+                                      } catch {
+                                        toast.warning(
+                                          'Đã lưu trên trình duyệt nhưng chưa gửi lên máy chủ — kiểm tra liên kết phụ huynh–học sinh và mã lớp.',
+                                        );
+                                      }
                                     }}
                                     className="mt-2 bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-700"
                                   >
@@ -518,6 +656,184 @@ export default function ParentPage() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* TRAO ĐỔI + ĐIỂM DANH (API) */}
+      {activeTab === 'comms' && (user?.role === 'parent' || user?.role === 'admin') && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <h3 className="font-semibold text-gray-800 mb-1 flex items-center gap-2">
+              <MessageSquare size={17} className="text-blue-600" />
+              Trao đổi giáo viên — phụ huynh
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Dữ liệu lấy từ máy chủ (bảng trao đổi và điểm danh học sinh). Chọn học sinh đã được quản trị liên kết với lớp.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-end mb-4">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Liên kết gửi tin</label>
+                <select
+                  value={
+                    commsSel
+                      ? `${commsSel.maLop}|${commsSel.maHocSinh}`
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const [maLop, maHocSinh] = v.split('|');
+                    if (maLop && maHocSinh) setCommsSel({ maLop, maHocSinh });
+                  }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                >
+                  {apiLinks.filter((l) => l.maLop && l.studentId).length === 0 ? (
+                    <option value="">Không có liên kết lớp + học sinh trên hệ thống</option>
+                  ) : (
+                    apiLinks
+                      .filter((l) => l.maLop && l.studentId)
+                      .map((l) => (
+                        <option key={l.id} value={`${l.maLop}|${l.studentId}`}>
+                          Lớp {l.maLop} — HS {l.studentId}
+                          {l.relationship ? ` (${l.relationship})` : ''}
+                        </option>
+                      ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {!user?.chiDoc && (
+              <div className="border border-gray-100 rounded-lg p-3 bg-gray-50/90 space-y-2 mb-4">
+                <p className="text-xs font-medium text-gray-700">Phản hồi giáo viên</p>
+                <input
+                  value={commsCompose.tieuDe}
+                  onChange={(e) => setCommsCompose((c) => ({ ...c, tieuDe: e.target.value }))}
+                  placeholder="Tiêu đề"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                />
+                <textarea
+                  value={commsCompose.noiDung}
+                  onChange={(e) => setCommsCompose((c) => ({ ...c, noiDung: e.target.value }))}
+                  rows={3}
+                  placeholder="Nội dung…"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white resize-none"
+                />
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <label className="block text-[11px] text-gray-500 mb-1">Thời điểm gửi</label>
+                    <input
+                      type="datetime-local"
+                      value={commsCompose.thoiDiem}
+                      onChange={(e) =>
+                        setCommsCompose((c) => ({ ...c, thoiDiem: e.target.value }))
+                      }
+                      className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white"
+                    onClick={() => setCommsCompose((c) => ({ ...c, thoiDiem: toDatetimeLocalValue() }))}
+                  >
+                    Giờ hiện tại
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!commsSel}
+                    className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    onClick={async () => {
+                      if (!commsSel || !commsCompose.noiDung.trim()) {
+                        toast.error('Chọn học sinh liên kết và nhập nội dung');
+                        return;
+                      }
+                      const thIso = commsCompose.thoiDiem.trim()
+                        ? new Date(commsCompose.thoiDiem).toISOString()
+                        : new Date().toISOString();
+                      try {
+                        await postParentParentTeacherExchange({
+                          maLop: commsSel.maLop,
+                          maHocSinh: commsSel.maHocSinh,
+                          tieuDe: commsCompose.tieuDe.trim() || undefined,
+                          noiDung: commsCompose.noiDung.trim(),
+                          thoiDiem: thIso,
+                        });
+                        setCommsCompose((c) => ({ ...c, tieuDe: '', noiDung: '', thoiDiem: toDatetimeLocalValue() }));
+                        const ex = await fetchParentParentTeacherExchange();
+                        setApiExchanges(ex);
+                        toast.success('Đã gửi');
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : 'Không gửi được');
+                      }
+                    }}
+                  >
+                    Gửi
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {apiExchanges.length === 0 ? (
+                <p className="text-sm text-gray-400">Chưa có tin trao đổi.</p>
+              ) : (
+                apiExchanges.map((m) => (
+                  <div
+                    key={m.maTraoDoi}
+                    className={`rounded-lg border p-3 text-sm ${m.vaiTroGui === 'teacher' ? 'bg-blue-50/70 border-blue-100' : 'bg-green-50/70 border-green-100'
+                      }`}
+                  >
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>{m.vaiTroGui === 'teacher' ? 'Giáo viên' : 'Phụ huynh'} · Lớp {m.maLop}</span>
+                      <span>{new Date(m.thoiDiem).toLocaleString('vi-VN')}</span>
+                    </div>
+                    <p className="font-semibold text-gray-800 mt-1">{m.tieuDe}</p>
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      HS: {m.maHocSinh ?? '—'}
+                    </p>
+                    <p className="text-gray-700 mt-2 whitespace-pre-wrap">{m.noiDung}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <h3 className="font-semibold text-gray-800 mb-1 flex items-center gap-2">
+              <Clock size={17} className="text-green-600" />
+              Điểm danh theo thời điểm (30 ngày gần nhất)
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Mỗi dòng là một lần ghi với giờ cụ thể (giáo viên chọn hoặc giờ hiện tại).
+            </p>
+            {apiAttDetail.length === 0 ? (
+              <p className="text-sm text-gray-400">Chưa có bản ghi hoặc chưa liên kết học sinh.</p>
+            ) : (
+              <div className="overflow-x-auto border border-gray-100 rounded-lg">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500">
+                      <th className="px-3 py-2">Thời điểm</th>
+                      <th className="px-3 py-2">Lớp</th>
+                      <th className="px-3 py-2">Mã HS</th>
+                      <th className="px-3 py-2">Trạng thái</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {apiAttDetail.map((r) => (
+                      <tr key={r.ma} className="border-t border-gray-100">
+                        <td className="px-3 py-2 whitespace-nowrap">{new Date(r.thoiDiem).toLocaleString('vi-VN')}</td>
+                        <td className="px-3 py-2 font-mono">{r.maLop}</td>
+                        <td className="px-3 py-2 font-mono">{r.maHocSinh}</td>
+                        <td className="px-3 py-2">
+                          {r.trangThai === 'present' ? 'Có mặt' : r.trangThai === 'late' ? 'Muộn' : 'Vắng'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

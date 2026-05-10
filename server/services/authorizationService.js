@@ -1,4 +1,4 @@
-import { getPool } from '../db.js';
+import { getPool, sql } from '../db.js';
 import { HttpError } from '../utils/httpError.js';
 
 export async function findTeacherCodeByAccount(maTaiKhoan) {
@@ -6,12 +6,13 @@ export async function findTeacherCodeByAccount(maTaiKhoan) {
   const pool = await getPool();
   const result = await pool
     .request()
-    .input('maTaiKhoan', maTaiKhoan)
+    .input('maTaiKhoan', sql.UniqueIdentifier, maTaiKhoan)
     .query(`
       SELECT TOP 1
         g.[MãGiáoViên] AS maGiaoVien
       FROM dbo.TaiKhoan t
-      INNER JOIN dbo.GiaoVien g ON g.[Email] = t.[Email]
+      INNER JOIN dbo.GiaoVien g
+        ON g.[Email] COLLATE DATABASE_DEFAULT = t.[Email] COLLATE DATABASE_DEFAULT
       WHERE t.[MãTàiKhoản] = @maTaiKhoan
     `);
   return result.recordset[0]?.maGiaoVien || null;
@@ -35,8 +36,12 @@ export async function assertTeacherOwnsClass(req, maLop) {
   const pool = await getPool();
   const result = await pool
     .request()
-    .input('maLop', maLop)
-    .query('SELECT TOP 1 [MãGiáoViên] AS maGiaoVien FROM dbo.LopHoc WHERE [MãLớp] = @maLop');
+    .input('maLop', sql.NVarChar, maLop)
+    .query(`
+      SELECT TOP 1 [MãGiáoViên] AS maGiaoVien
+      FROM dbo.LopHoc
+      WHERE [MãLớp] COLLATE DATABASE_DEFAULT = @maLop COLLATE DATABASE_DEFAULT
+    `);
   const row = result.recordset[0];
   if (!row) throw new HttpError(404, 'Khong tim thay lop hoc');
   if (row.maGiaoVien !== teacherCode) throw new HttpError(403, 'Ban khong phu trach lop nay');

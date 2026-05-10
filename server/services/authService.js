@@ -103,10 +103,14 @@ export async function registerUser({ tenDangNhap, matKhau, hoTen, email, role })
 }
 
 export async function loginWithPassword(tenDangNhap, matKhau) {
+  const u = String(tenDangNhap ?? '').trim();
+  const p = String(matKhau ?? '').trim();
+  if (!u || !p) throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
+
   const pool = await getPool();
   const result = await pool
     .request()
-    .input('tenDangNhap', tenDangNhap)
+    .input('tenDangNhap', sql.NVarChar, u)
     .query(`
       SELECT TOP 1
         [MãTàiKhoản] AS maTaiKhoan,
@@ -120,26 +124,35 @@ export async function loginWithPassword(tenDangNhap, matKhau) {
         [MậtKhẩu] AS matKhau,
         [MậtKhẩuHash] AS matKhauHash
       FROM dbo.TaiKhoan
-      WHERE [TênĐăngNhập] = @tenDangNhap
+      WHERE LOWER(LTRIM(RTRIM([TênĐăngNhập]))) = LOWER(@tenDangNhap)
         AND [HoạtĐộng] = 1
     `);
 
   const account = result.recordset[0];
   if (!account) throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
 
+  /** Hash có trong DB và không phải chuỗi trống (SQL có thể trả ''). */
+  const hasStoredHash = account.matKhauHash != null && String(account.matKhauHash).trim() !== '';
+
   let valid = false;
-  if (account.matKhauHash) {
-    valid = await bcrypt.compare(matKhau, account.matKhauHash);
-  } else {
-    valid = account.matKhau === matKhau;
-    if (valid) {
-      const hash = await bcrypt.hash(matKhau, 10);
-      await pool
-        .request()
-        .input('maTaiKhoan', account.maTaiKhoan)
-        .input('matKhauHash', hash)
-        .query('UPDATE dbo.TaiKhoan SET [MậtKhẩuHash] = @matKhauHash WHERE [MãTàiKhoản] = @maTaiKhoan');
+  if (hasStoredHash) {
+    try {
+      valid = await bcrypt.compare(p, account.matKhauHash);
+    } catch {
+      valid = false;
     }
+  }
+
+  /* Dữ liệu cũ: cột MậtKhẩu plaintext đúng nhưng MậtKhẩuHash sai/thiếu/không phải bcrypt → vẫn cho vào và đồng bộ hash. */
+  const dbPlain = account.matKhau == null ? '' : String(account.matKhau).trim();
+  if (!valid && dbPlain === p) {
+    valid = true;
+    const hash = await bcrypt.hash(p, 10);
+    await pool
+      .request()
+      .input('maTaiKhoan', account.maTaiKhoan)
+      .input('matKhauHash', hash)
+      .query('UPDATE dbo.TaiKhoan SET [MậtKhẩuHash] = @matKhauHash WHERE [MãTàiKhoản] = @maTaiKhoan');
   }
 
   if (!valid) throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');

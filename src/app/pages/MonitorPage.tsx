@@ -36,8 +36,9 @@ function findRealtimeRow(list: any[], classId: string) {
 function coerceLiveFromApiItem(item: any): LiveData {
   const sessionOn = Boolean(item?.maBuoiHocDangHoatDong);
   const effectiveActive = Boolean(item?.isActive) || sessionOn;
+  const ma = item?.maLop ?? item?.classId ?? '';
   return {
-    classId: item.maLop,
+    classId: ma,
     isActive: effectiveActive,
     currentStudents: Number(item.currentStudents) || 0,
     concentrationLevel: Number(item.concentrationLevel) || 0,
@@ -45,7 +46,39 @@ function coerceLiveFromApiItem(item: any): LiveData {
     alertStatus: item.alertStatus ?? 'normal',
     last30MinConcentration: [],
     last30MinStudents: [],
+    displayName: item.tenLop || undefined,
+    displayTeacher: item.tenGiaoVien || undefined,
   };
+}
+
+function meaningfulApiSnapshot(raw: any) {
+  if (!raw || typeof raw !== 'object') return false;
+  if (raw.thoiDiem) return true;
+  const c = Number(raw.concentrationLevel);
+  const p = Number(raw.currentStudents);
+  return (Number.isFinite(c) && c > 0) || (Number.isFinite(p) && p > 0);
+}
+
+/** Giống tổng quan Dashboard: không có buổi đang học vẫn hiện các lớp + chỉ số gần nhất để không màn trắng. */
+function monitorDisplayPool(remoteLiveRaw: any[]): LiveData[] {
+  if (!remoteLiveRaw.length) {
+    return LIVE_DATA;
+  }
+  const mapped = remoteLiveRaw.map(coerceLiveFromApiItem);
+  const activeStrict = mapped.filter((l) => l.isActive);
+  if (activeStrict.length > 0) {
+    return activeStrict;
+  }
+
+  const withSnapshot = mapped.filter((_l, i) => meaningfulApiSnapshot(remoteLiveRaw[i]));
+  const basis = withSnapshot.length > 0 ? remoteLiveRaw.filter((_r, i) => meaningfulApiSnapshot(remoteLiveRaw[i])).map(coerceLiveFromApiItem)
+    : mapped;
+
+  return basis.map((l) => ({
+    ...l,
+    isActive: true,
+    snapshotOnly: true,
+  }));
 }
 
 function computeAlertStatus(
@@ -168,17 +201,32 @@ function ClassMonitorCard({ live }: { live: LiveData }) {
         {/* Header */}
         <div className="flex items-start justify-between mb-3">
           <div>
-            <h3 className="font-semibold text-gray-900">{cls?.name}</h3>
-            <p className="text-xs text-gray-500 mt-0.5">{teacher?.name} · {room?.name}</p>
+            <h3 className="font-semibold text-gray-900">
+              {live.displayName ?? cls?.name ?? live.classId}
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {live.displayTeacher || teacher?.name || 'Giáo viên'}
+              {cls && room?.name ? ` · ${room.name}` : ''}
+              {!cls && live.classId ? ` · ${live.classId}` : ''}
+            </p>
           </div>
           <div className="flex items-center gap-1.5 bg-green-50 text-green-700 text-xs px-2 py-1 rounded-full border border-green-200">
-            <Wifi size={10} />
-            <span>Đang học</span>
+            {live.snapshotOnly ? (
+            <>
+              <WifiOff size={10} className="text-amber-600" />
+              <span className="text-amber-800">Ảnh chụp chỉ số</span>
+            </>
+          ) : (
+            <>
+              <Wifi size={10} />
+              <span>Đang học</span>
+            </>
+          )}
           </div>
         </div>
 
         {/* Video */}
-        <LiveVideoFeed className={cls?.name ?? ''} />
+        <LiveVideoFeed className={live.displayName ?? cls?.name ?? live.classId} />
 
         {/* Stats */}
         <div className="flex items-center justify-between mt-4">
@@ -806,8 +854,10 @@ export default function MonitorPage() {
 
   if (classId) return <MonitorDetail key={classId} classId={classId} />;
 
-  const normalizedRemote = remoteLive.map((item) => coerceLiveFromApiItem(item));
-  const activeClasses = (normalizedRemote.length > 0 ? normalizedRemote : LIVE_DATA).filter(l => l.isActive);
+  const poolForCards = monitorDisplayPool(remoteLive);
+  const activeClasses = poolForCards.filter((l) => l.isActive);
+  const usingMonitorSnapshotFallback =
+    remoteLive.length > 0 && activeClasses.some((l) => Boolean(l.snapshotOnly));
 
   const displayed = filter === 'alert'
     ? activeClasses.filter(l => l.alertStatus !== 'normal')
@@ -834,7 +884,16 @@ export default function MonitorPage() {
         <div>
           <h1 className="text-gray-900">Theo dõi thời gian thực</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {activeClasses.length} lớp đang học · Cập nhật liên tục
+            {usingMonitorSnapshotFallback ? (
+              <>
+                <span className="text-amber-700 font-medium">{activeClasses.length} lớp phụ trách</span>
+                {' '}
+                — hiển thị chỉ số gần nhất: chưa có buổi học trạng thái hoạt động trong SQL, hoặc chỉ số chưa gắn
+                đúng mã buổi. Dữ liệu vẫn được SSE và làm mới định kỳ.
+              </>
+            ) : (
+              <>{activeClasses.length} lớp đang học · Cập nhật liên tục</>
+            )}
           </p>
         </div>
         <div className="flex gap-2">

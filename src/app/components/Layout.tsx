@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, MonitorPlay, BookOpen, BarChart3,
   Settings, Users, CalendarDays, Bell, LogOut, Menu, X,
-  ChevronRight, GraduationCap, Home, ShieldCheck
+  ChevronRight, GraduationCap, Home, ShieldCheck, Sparkles,
 } from 'lucide-react';
 import { fetchClassesPage, fetchMyNotifications } from '../lib/api';
 
@@ -13,11 +13,19 @@ interface NavItem {
   icon: React.ReactNode;
   label: string;
   roles: string[];
+  /** true: chỉ khớp đúng path, không khớp con (vd /monitor không sáng khi vào /monitor/focus/robo) */
+  end?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', icon: <LayoutDashboard size={18} />, label: 'Tổng quan', roles: ['admin', 'teacher'] },
-  { to: '/monitor', icon: <MonitorPlay size={18} />, label: 'Theo dõi thực tế', roles: ['admin', 'teacher'] },
+  { to: '/monitor', icon: <MonitorPlay size={18} />, label: 'Theo dõi thực tế', roles: ['admin', 'teacher'], end: true },
+  {
+    to: '/monitor/focus/robo',
+    icon: <Sparkles size={18} />,
+    label: 'Roboflow · tập trung',
+    roles: ['admin', 'teacher'],
+  },
   /** Giáo viên: `to` được thay bằng lớp phụ trách đầu tiên từ API */
   { to: '/classes/c1', icon: <BookOpen size={18} />, label: 'Lớp học thông minh', roles: ['admin', 'teacher'] },
   { to: '/schedule', icon: <CalendarDays size={18} />, label: 'Lịch học', roles: ['admin', 'teacher', 'parent'] },
@@ -96,6 +104,7 @@ export function Layout() {
           <NavLink
             key={item.to}
             to={item.to}
+            end={item.end}
             onClick={() => setSidebarOpen(false)}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${

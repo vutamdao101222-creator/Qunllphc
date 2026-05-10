@@ -1,0 +1,16 @@
+Node.js (thư viện tedious) chỉ kết nối SQL Server qua TCP.
+
+Lệnh: sqlcmd -S BINMILO (không ghi tcp:) thường dùng Shared memory — có thể đăng nhập sa được
+trong khi: sqlcmd -S tcp:127.0.0.1,1433 -U sa … vẫn báo Login failed.
+
+=> Cùng một máy nhưng giao thức khác nhau; cần sửa SQL Server để đăng nhập sa qua TCP thành công.
+
+Việc cần làm (trên máy BINMILO):
+1) SQL Server Configuration Manager → SQL Server Network Configuration → Protocols for <instance đang dùng>:
+   bật TCP/IP, khởi động lại dịch vụ SQL.
+2) Trong TCP/IP → IP Addresses → IPAll: ghi rõ TCP Port (ví dụ 1433) hoặc ghi nhận TCP Dynamic Port.
+3) Kiểm tra: sqlcmd -S "tcp:127.0.0.1,1433" -U sa -P "<mật khẩu>" -Q "SELECT 1"
+   Chỉ khi lệnh này OK thì API Node mới kết nối được với cùng user/mật khẩu.
+
+Thay thế: đặt DB_WINDOWS_AUTH=true trong .env (Windows), cấp quyền Windows cho tài khoản chạy Node trong SQL,
+và cài ODBC Driver + gói msnodesqlv8 (đã có trong package.json nếu bạn cài).

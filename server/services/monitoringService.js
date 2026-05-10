@@ -201,7 +201,7 @@ export async function getLatestRealtime(maGiaoVienFilter = null) {
       maLop: row.maLop,
       tenLop: row.tenLop,
       monHoc: row.monHoc,
-      siSoDuKien: row.siSoDuKien,
+      siSoDuKien: expected,
       tenGiaoVien: row.tenGiaoVien,
       thoiDiem: row.thoiDiem,
       currentStudents: present,
@@ -241,6 +241,8 @@ export const EMPTY_DASHBOARD = {
   avgConcentration: 0,
   alerts: [],
   classes: [],
+  totalExpectedStudents: 0,
+  usingSnapshotFallback: false,
 };
 
 export async function getDashboardOverview(maGiaoVienFilter = null) {
@@ -248,10 +250,15 @@ export async function getDashboardOverview(maGiaoVienFilter = null) {
     const raw = await getLatestRealtime(maGiaoVienFilter);
     const items = Array.isArray(raw) ? raw : [];
     const active = items.filter((i) => i.isActive);
-    const totalStudents = active.reduce((sum, i) => sum + (Number(i.currentStudents) || 0), 0);
-    const avgConcentration = active.length
-      ? Math.round(active.reduce((sum, i) => sum + (Number(i.concentrationLevel) || 0), 0) / active.length)
+    /** Không có buổi active thì vẫn gộp theo snapshot mới nhất / sĩ số dự kiến để giao diện không trả toàn 0 */
+    const metricBasis = active.length > 0 ? active : items;
+    const totalStudents = metricBasis.reduce((sum, i) => sum + (Number(i.currentStudents) || 0), 0);
+    const avgConcentration = metricBasis.length
+      ? Math.round(
+          metricBasis.reduce((sum, i) => sum + (Number(i.concentrationLevel) || 0), 0) / metricBasis.length,
+        )
       : 0;
+    const totalExpectedStudents = items.reduce((sum, i) => sum + (Number(i.siSoDuKien) || 0), 0);
     const alerts = active.filter((i) => i.alertStatus !== 'normal');
     return {
       activeClasses: active.length,
@@ -260,6 +267,8 @@ export async function getDashboardOverview(maGiaoVienFilter = null) {
       avgConcentration,
       alerts,
       classes: items,
+      totalExpectedStudents,
+      usingSnapshotFallback: active.length === 0 && items.length > 0,
     };
   } catch (e) {
     logError('getDashboardOverview failed', e);

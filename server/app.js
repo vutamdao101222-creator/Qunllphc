@@ -9,6 +9,7 @@ import monitoringRoutes from './routes/monitoringRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import parentRoutes from './routes/parentRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import focusInferenceRoutes from './routes/focusInferenceRoutes.js';
 import teacherRoutes from './routes/teacherRoutes.js';
 import classRoutes from './routes/classRoutes.js';
 import accountRoutes from './routes/accountRoutes.js';
@@ -25,20 +26,33 @@ import { getPool } from './db.js';
 export function createApp() {
   const app = express();
 
-  app.use(helmet());
+  if (env.trustProxy) {
+    app.set('trust proxy', 1);
+  }
+
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
   app.use(
     cors({
       origin: env.corsOrigin === '*' ? true : env.corsOrigin.split(',').map((item) => item.trim()),
       credentials: true,
     }),
   );
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
 
-  const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    message: { message: 'Qua nhieu lan dang nhap, vui long thu lai sau' },
-  });
+  const loginLimiter = env.loginRateLimitDisabled
+    ? (req, res, next) => next()
+    : rateLimit({
+        windowMs: env.loginRateLimitWindowMs,
+        max: env.loginRateLimitMax,
+        standardHeaders: true,
+        legacyHeaders: false,
+        skipSuccessfulRequests: true,
+        message: { message: 'Quá nhiều lần đăng nhập, vui lòng thử lại sau' },
+      });
 
   app.get('/api/health', async (_req, res, next) => {
     try {
@@ -52,10 +66,15 @@ export function createApp() {
         dbAutoMigrate: env.db.autoMigrate,
       });
     } catch (error) {
+      const raw = error?.message || 'Database unavailable';
+      let message = raw;
+      if (/ECONNRESET|ECONNREFUSED|ETIMEDOUT|ETIMEOUT|login failed|Login failed/i.test(String(raw))) {
+        message = `${raw} | Gợi ý: SQL trên cùng máy với Node → DB_SERVER=127.0.0.1; bật TCP/IP trong SQL Server Configuration Manager; firewall cho cổng 1433 (hoặc cổng instance); kiểm tra DB_USER/DB_PASSWORD.`;
+      }
       res.status(503).json({
         ok: false,
         db: false,
-        message: error?.message || 'Database unavailable',
+        message,
         simulationTickMs: env.simulationTickMs,
       });
     }
@@ -66,6 +85,7 @@ export function createApp() {
   app.use('/api/v1', reportRoutes);
   app.use('/api/v1', parentRoutes);
   app.use('/api/v1', aiRoutes);
+  app.use('/api/v1', focusInferenceRoutes);
   app.use('/api/v1', teacherRoutes);
   app.use('/api/v1', classRoutes);
   app.use('/api/v1', accountRoutes);

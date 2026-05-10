@@ -5,6 +5,7 @@ import { AuthGuard } from './components/AuthGuard';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import MonitorPage from './pages/MonitorPage';
+import FocusMonitorPage from './pages/FocusMonitorPage';
 import ClassDetailPage from './pages/ClassDetailPage';
 import SchedulePage from './pages/SchedulePage';
 import ReportsPage from './pages/ReportsPage';
@@ -45,6 +46,14 @@ export const router = createBrowserRouter([
       {
         path: 'dashboard',
         element: <DashboardPage />,
+      },
+      {
+        path: 'monitor/focus/robo',
+        element: (
+          <AuthGuard allowedRoles={['admin', 'teacher']}>
+            <FocusMonitorPage />
+          </AuthGuard>
+        ),
       },
       {
         path: 'monitor/:classId?',

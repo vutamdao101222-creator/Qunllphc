@@ -88,7 +88,7 @@ export async function getClass(maLop) {
         l.[SĩSốDựKiến] AS siSoDuKien
       FROM dbo.LopHoc l
       ${JOIN_GIAO_VIEN}
-      WHERE l.[MãLớp] = @maLop
+      WHERE l.[MãLớp] COLLATE DATABASE_DEFAULT = @maLop COLLATE DATABASE_DEFAULT
     `);
   const row = result.recordset[0];
   if (!row) throw new HttpError(404, 'Khong tim thay lop hoc');

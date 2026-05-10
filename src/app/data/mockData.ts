@@ -57,6 +57,10 @@ export interface LiveData {
   alertStatus: 'normal' | 'low_concentration' | 'low_attendance' | 'late_start';
   last30MinConcentration: { time: string; value: number }[];
   last30MinStudents: { time: string; value: number }[];
+  /** Không có BuoiHoc active — chỉ hiển thị chỉ số/Chỉ có trên API */
+  snapshotOnly?: boolean;
+  displayName?: string;
+  displayTeacher?: string;
 }
 
 export interface SessionReport {
