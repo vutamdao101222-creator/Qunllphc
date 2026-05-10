@@ -50,9 +50,13 @@ router.post('/dang-ky', validateBody(registerSchema), async (req, res, next) => 
   }
 });
 
-router.post('/lam-moi-token', validateBody(refreshSchema), (req, res) => {
-  const result = refreshAccessToken(req.body.refreshToken);
-  res.json(result);
+router.post('/lam-moi-token', validateBody(refreshSchema), async (req, res, next) => {
+  try {
+    const result = await refreshAccessToken(req.body.refreshToken);
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.get('/toi', requireAuth, (req, res) => {

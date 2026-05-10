@@ -153,6 +153,178 @@ export interface LearningProfile {
   suggestedIntervention: string;
 }
 
+/** Ngày “hôm nay” đồng bộ với SchoolDataContext.TODAY */
+export const MOCK_SCHOOL_TODAY = '08/04/2026';
+
+const C1_HS_NAMES = [
+  'Lê Minh An', 'Phạm Thu Giang', 'Hoàng Quốc Huy', 'Võ Mai Chi', 'Đặng Bảo Long',
+  'Bùi Khánh Ly', 'Dương Gia Hân', 'Lý Phúc An', 'Tôn Bảo Ngọc', 'Chu Minh Triết',
+  'Mai Quỳnh Anh', 'Hồ Đức Thịnh', 'Vũ Hải Yến', 'Cao Minh Quân', 'Lương Tuệ Nhi',
+  'Phan Anh Khoa', 'Trịnh Bảo Trâm', 'Đinh Gia Kiệt', 'La Khánh Vy', 'Quách Minh Đức',
+];
+
+function buildExtraC1Demo(): {
+  extraUsers: User[];
+  extraStudents: StudentProfile[];
+  extraSessions: SessionReport[];
+  extraDaily: StudentDailyStatus[];
+  extraFeedbacks: TeacherFeedback[];
+  extraAssignments: Assignment[];
+  extraSubmissions: AssignmentSubmission[];
+  extraProfiles: LearningProfile[];
+} {
+  const extraUsers: User[] = [];
+  const extraStudents: StudentProfile[] = [];
+  for (let i = 1; i <= 20; i++) {
+    const pad = String(i).padStart(2, '0');
+    const sid = `c1-hs-${pad}`;
+    const pid = `ph-c1-${pad}`;
+    extraUsers.push({
+      id: pid,
+      name: `Phụ huynh (${C1_HS_NAMES[i - 1].split(' ').pop()})`,
+      role: 'parent',
+      email: `phuhuynh${pad}@school.local`,
+      username: `phuhuynh${pad}`,
+      password: '123456',
+      parentClassIds: ['c1'],
+      parentStudentIds: [sid],
+    });
+    extraStudents.push({
+      id: sid,
+      name: C1_HS_NAMES[i - 1],
+      classId: 'c1',
+      parentUserId: pid,
+    });
+  }
+
+  const extraSessions: SessionReport[] = Array.from({ length: 20 }, (_, i) => {
+    const d = new Date(2026, 3, 21 + i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const conc = 62 + ((i * 7) % 28);
+    const avg = 24 + (i % 5);
+    return {
+      id: `sx-c1-${i + 1}`,
+      classId: 'c1',
+      date: dateStr,
+      startTime: '07:00',
+      endTime: '09:00',
+      avgStudents: avg,
+      peakStudents: Math.min(34, avg + 3),
+      minStudents: Math.max(18, avg - 4),
+      avgConcentration: conc,
+      peakConcentrationTime: '07:35',
+      lowConcentrationTime: '08:12',
+      duration: 120,
+    };
+  });
+
+  const attOpts: StudentDailyStatus['attendance'][] = ['present', 'present', 'late', 'present', 'absent'];
+  const extraDaily: StudentDailyStatus[] = extraStudents.map((st, i) => ({
+    studentId: st.id,
+    date: MOCK_SCHOOL_TODAY,
+    attendance: attOpts[i % attOpts.length],
+    checkInTime:
+      attOpts[i % attOpts.length] === 'absent'
+        ? undefined
+        : attOpts[i % attOpts.length] === 'late'
+          ? '07:12'
+          : `06:${String(50 + (i % 9)).padStart(2, '0')}`,
+    concentrationScore: 58 + (i * 3) % 35,
+    participationScore: 55 + (i * 5) % 38,
+    behavior: i % 7 === 0 ? 'needs_attention' : i % 5 === 0 ? 'good' : 'normal',
+    note:
+      i % 4 === 0
+        ? 'Cần theo dõi thêm phần bài tập về nhà.'
+        : 'Tham gia ổn định, duy trì nề nếp tốt.',
+  }));
+
+  const fbCats: TeacherFeedback['category'][] = ['praise', 'reminder', 'discipline', 'praise', 'reminder'];
+  const fbDays = ['08/04/2026', '07/04/2026', '06/04/2026', '10/04/2026', '09/04/2026'];
+  const extraFeedbacks: TeacherFeedback[] = Array.from({ length: 20 }, (_, i) => {
+    const st = extraStudents[i % extraStudents.length];
+    const cat = fbCats[i % fbCats.length];
+    return {
+      id: `tf-c1-${i + 1}`,
+      studentId: st.id,
+      classId: 'c1',
+      teacherId: 't1',
+      date: fbDays[i % fbDays.length],
+      category: cat,
+      title:
+        cat === 'praise'
+          ? `Tuyên dương tiến bộ (${i + 1})`
+          : cat === 'reminder'
+            ? `Nhắc chuẩn bị bài (${i + 1})`
+            : `Nhắc nề nếp (${i + 1})`,
+      content:
+        cat === 'praise'
+          ? `${st.name} có tiến bộ trong buổi luyện tập nhóm.`
+          : cat === 'reminder'
+            ? `Phụ huynh giúp nhắc ${st.name} hoàn thành phiếu bài tập đầy đủ.`
+            : `${st.name} cần hạn chế trao đổi riêng trong giờ giảng.`,
+      readByParent: i % 3 === 0,
+      replyRequested: i % 4 === 0,
+      replies: i % 6 === 0
+        ? [
+            {
+              id: `r-c1-${i}`,
+              fromRole: 'parent',
+              authorName: 'Phụ huynh',
+              date: '08/04/2026',
+              content: 'Gia đình đã nhận được và sẽ phối hợp với nhà trường.',
+            },
+          ]
+        : [],
+    };
+  });
+
+  const extraAssignments: Assignment[] = Array.from({ length: 20 }, (_, i) => {
+    const due = new Date(2026, 3, 9 + (i % 12));
+    const dueStr = `${String(due.getDate()).padStart(2, '0')}/${String(due.getMonth() + 1).padStart(2, '0')}/${due.getFullYear()}`;
+    return {
+      id: `c1-as-${i + 1}`,
+      classId: 'c1',
+      title: `Bài tập Toán — phần ${i + 1}`,
+      description: `Ôn tập chương tương ứng, bài ${i + 1}–${i + 4} (bản tự luyện).`,
+      dueDate: dueStr,
+      assignedDate: MOCK_SCHOOL_TODAY,
+      target: i % 3 === 0 ? 'student' : 'class',
+    };
+  });
+
+  const extraSubmissions: AssignmentSubmission[] = extraStudents.map((st, i) => ({
+    id: `sb-c1-${st.id}`,
+    assignmentId: `c1-as-${(i % 5) + 1}`,
+    studentId: st.id,
+    submittedAt: i % 2 === 0 ? `${MOCK_SCHOOL_TODAY} 20:${String(i).padStart(2, '0')}` : undefined,
+    status: i % 2 === 0 ? 'submitted' : i % 3 === 0 ? 'late' : 'pending',
+  }));
+
+  const extraProfiles: LearningProfile[] = extraStudents.map((st, i) => ({
+    studentId: st.id,
+    weekLabels: ['Tuần 1', 'Tuần 2', 'Tuần 3', 'Tuần 4'],
+    concentrationTrend: [70 + (i % 5), 72 + (i % 4), 68 + (i % 6), 74 + (i % 3)],
+    participationTrend: [65 + (i % 7), 67 + (i % 5), 70 + (i % 4), 72 + (i % 6)],
+    completionTrend: [68 + (i % 8), 72, 75 + (i % 5), 78 + (i % 4)],
+    strengths: ['Tiếp thu nhanh phần lý thuyết', 'Làm bài cẩn thận'],
+    weaknesses: i % 4 === 0 ? ['Dễ mất tập trung cuối giờ'] : ['Cần luyện thêm bài tập nâng cao'],
+    suggestedIntervention: `Theo sát tiến độ tuần này; giao thêm 2 bài củng cố cho ${st.name.split(' ').pop()}.`,
+  }));
+
+  return {
+    extraUsers,
+    extraStudents,
+    extraSessions,
+    extraDaily,
+    extraFeedbacks,
+    extraAssignments,
+    extraSubmissions,
+    extraProfiles,
+  };
+}
+
+const C1_BULK = buildExtraC1Demo();
+
 // ============================
 // USERS
 // ============================
@@ -193,6 +365,7 @@ export const USERS: User[] = [
     parentClassIds: ['c1', 'c4'],
     parentStudentIds: ['st1', 'st2'],
   },
+  ...C1_BULK.extraUsers,
 ];
 
 // ============================
@@ -284,7 +457,7 @@ export const CLASSES: ClassInfo[] = [
       { dayOfWeek: 4, startTime: '07:00', endTime: '09:00' },
       { dayOfWeek: 6, startTime: '07:00', endTime: '09:00' },
     ],
-    expectedStudents: 30,
+    expectedStudents: 35,
     grade: '10',
   },
   {
@@ -498,7 +671,7 @@ for (let d = 13; d >= 0; d--) {
   });
 }
 
-export const SESSION_REPORTS: SessionReport[] = sessions;
+export const SESSION_REPORTS: SessionReport[] = [...sessions, ...C1_BULK.extraSessions];
 
 // ============================
 // NOTIFICATIONS
@@ -553,12 +726,13 @@ export const STUDENTS: StudentProfile[] = [
   { id: 'st1', name: 'Nguyễn Minh Khôi', classId: 'c1', parentUserId: 'u4' },
   { id: 'st2', name: 'Nguyễn Thu Hà', classId: 'c4', parentUserId: 'u4' },
   { id: 'st3', name: 'Trần Gia Bảo', classId: 'c2', parentUserId: 'u4' },
+  ...C1_BULK.extraStudents,
 ];
 
 export const STUDENT_DAILY_STATUS: StudentDailyStatus[] = [
   {
     studentId: 'st1',
-    date: '08/04/2026',
+    date: MOCK_SCHOOL_TODAY,
     attendance: 'present',
     checkInTime: '06:55',
     concentrationScore: 83,
@@ -568,7 +742,7 @@ export const STUDENT_DAILY_STATUS: StudentDailyStatus[] = [
   },
   {
     studentId: 'st2',
-    date: '08/04/2026',
+    date: MOCK_SCHOOL_TODAY,
     attendance: 'late',
     checkInTime: '07:10',
     concentrationScore: 62,
@@ -576,6 +750,7 @@ export const STUDENT_DAILY_STATUS: StudentDailyStatus[] = [
     behavior: 'needs_attention',
     note: 'Đi học muộn 10 phút, cần chủ động phát biểu hơn.',
   },
+  ...C1_BULK.extraDaily,
 ];
 
 export const TEACHER_FEEDBACKS: TeacherFeedback[] = [
@@ -626,6 +801,7 @@ export const TEACHER_FEEDBACKS: TeacherFeedback[] = [
       },
     ],
   },
+  ...C1_BULK.extraFeedbacks,
 ];
 
 export const ASSIGNMENTS: Assignment[] = [
@@ -635,7 +811,7 @@ export const ASSIGNMENTS: Assignment[] = [
     title: 'Bài tập hàm số bậc nhất',
     description: 'Hoàn thành bài 12-18 trang 45.',
     dueDate: '09/04/2026',
-    assignedDate: '08/04/2026',
+    assignedDate: MOCK_SCHOOL_TODAY,
     target: 'class',
   },
   {
@@ -644,14 +820,16 @@ export const ASSIGNMENTS: Assignment[] = [
     title: 'Phiếu luyện tập hình học',
     description: 'Nộp phiếu kèm hình vẽ chi tiết.',
     dueDate: '10/04/2026',
-    assignedDate: '08/04/2026',
+    assignedDate: MOCK_SCHOOL_TODAY,
     target: 'group',
   },
+  ...C1_BULK.extraAssignments,
 ];
 
 export const ASSIGNMENT_SUBMISSIONS: AssignmentSubmission[] = [
-  { id: 'sb1', assignmentId: 'as1', studentId: 'st1', submittedAt: '08/04/2026 20:10', status: 'submitted' },
+  { id: 'sb1', assignmentId: 'as1', studentId: 'st1', submittedAt: `${MOCK_SCHOOL_TODAY} 20:10`, status: 'submitted' },
   { id: 'sb2', assignmentId: 'as2', studentId: 'st2', status: 'pending' },
+  ...C1_BULK.extraSubmissions,
 ];
 
 export const LEARNING_PROFILES: LearningProfile[] = [
@@ -675,6 +853,7 @@ export const LEARNING_PROFILES: LearningProfile[] = [
     weaknesses: ['Đi học muộn', 'Chưa hoàn thành bài tập đều'],
     suggestedIntervention: 'Phối hợp phụ huynh theo dõi giờ ngủ và checklist bài tập mỗi tối.',
   },
+  ...C1_BULK.extraProfiles,
 ];
 
 // ============================

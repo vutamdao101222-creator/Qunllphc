@@ -19,6 +19,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import metricsRoutes from './routes/metricsRoutes.js';
 import loginHistoryRoutes from './routes/loginHistoryRoutes.js';
 import adminManagementRoutes from './routes/adminManagementRoutes.js';
+import systemRoutes from './routes/systemRoutes.js';
 import { getPool } from './db.js';
 
 export function createApp() {
@@ -43,9 +44,20 @@ export function createApp() {
     try {
       const pool = await getPool();
       await pool.request().query('SELECT 1 AS ok');
-      res.json({ ok: true, message: 'API and SQL Server are connected' });
+      res.json({
+        ok: true,
+        db: true,
+        message: 'API and SQL Server are connected',
+        simulationTickMs: env.simulationTickMs,
+        dbAutoMigrate: env.db.autoMigrate,
+      });
     } catch (error) {
-      next(error);
+      res.status(503).json({
+        ok: false,
+        db: false,
+        message: error?.message || 'Database unavailable',
+        simulationTickMs: env.simulationTickMs,
+      });
     }
   });
 
@@ -64,6 +76,7 @@ export function createApp() {
   app.use('/api/v1', metricsRoutes);
   app.use('/api/v1', loginHistoryRoutes);
   app.use('/api/v1', adminManagementRoutes);
+  app.use('/api/v1', systemRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

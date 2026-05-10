@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { generateAiPredictions } from '../services/aiService.js';
 import { createRealtimeSnapshot, getLatestRealtime, upsertAlertsFromRealtime } from '../services/monitoringService.js';
+import { runScheduleRemindersIfNeeded } from '../services/scheduleReminderService.js';
 import { broadcast } from '../sse/hub.js';
 import { logError, logInfo } from '../utils/logger.js';
 
@@ -8,6 +9,7 @@ let timerId;
 
 async function runTick() {
   try {
+    await runScheduleRemindersIfNeeded();
     await createRealtimeSnapshot();
     const realtime = await getLatestRealtime();
     await upsertAlertsFromRealtime(realtime);

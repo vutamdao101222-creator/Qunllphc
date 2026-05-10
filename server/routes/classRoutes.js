@@ -5,6 +5,8 @@ import { validateBody, validateParams, validateQuery } from '../middleware/valid
 import { paginationSchema, buildPageResult } from '../utils/pagination.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { createClass, deleteClass, getClass, listClasses, updateClass } from '../services/classService.js';
+import { denyIfReadOnly } from '../middleware/readOnly.js';
+import { auditFromReq } from '../utils/auditFromReq.js';
 
 const router = Router();
 
@@ -47,9 +49,11 @@ router.post(
   '/lop-hoc',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateBody(createSchema),
   asyncHandler(async (req, res) => {
     const data = await createClass(req.body);
+    auditFromReq(req, 'LOP_HOC_TAO', data.maLop, req.body);
     res.status(201).json(data);
   }),
 );
@@ -58,10 +62,12 @@ router.patch(
   '/lop-hoc/:maLop',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(codeParam),
   validateBody(updateSchema),
   asyncHandler(async (req, res) => {
     const data = await updateClass(req.params.maLop, req.body);
+    auditFromReq(req, 'LOP_HOC_CAP_NHAT', req.params.maLop, req.body);
     res.json(data);
   }),
 );
@@ -70,10 +76,12 @@ router.put(
   '/lop-hoc/:maLop',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(codeParam),
   validateBody(updateSchema),
   asyncHandler(async (req, res) => {
     const data = await updateClass(req.params.maLop, req.body);
+    auditFromReq(req, 'LOP_HOC_CAP_NHAT', req.params.maLop, req.body);
     res.json(data);
   }),
 );
@@ -82,9 +90,11 @@ router.delete(
   '/lop-hoc/:maLop',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(codeParam),
   asyncHandler(async (req, res) => {
     const data = await deleteClass(req.params.maLop);
+    auditFromReq(req, 'LOP_HOC_XOA', req.params.maLop, {});
     res.json(data);
   }),
 );

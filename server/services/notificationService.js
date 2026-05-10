@@ -101,3 +101,75 @@ export async function deleteNotification(maThongBao) {
     .query('DELETE FROM dbo.ThongBao WHERE [MãThôngBáo] = @maThongBao');
   return { ok: true };
 }
+
+export async function listNotificationsForUser({ page, pageSize, maTaiKhoan, loai }) {
+  const pool = await getPool();
+  const offset = (page - 1) * pageSize;
+  const filters = [];
+  if (loai) filters.push('t.[Loại] = @loai');
+  const whereExtra = filters.length ? `AND ${filters.join(' AND ')}` : '';
+
+  const chk = await pool.request().query(`
+    SELECT CASE WHEN OBJECT_ID(N'dbo.ThongBaoDaDoc', N'U') IS NOT NULL THEN 1 ELSE 0 END AS ok
+  `);
+  const hasRead = chk.recordset[0]?.ok === 1;
+
+  const totalReq = pool.request();
+  if (loai) totalReq.input('loai', sql.NVarChar, loai);
+  const total = (
+    await totalReq.query(`SELECT COUNT(*) AS total FROM dbo.ThongBao t WHERE 1=1 ${whereExtra}`)
+  ).recordset[0].total;
+
+  const request = pool.request();
+  request.input('offset', sql.Int, offset);
+  request.input('pageSize', sql.Int, pageSize);
+  request.input('maTaiKhoan', sql.UniqueIdentifier, maTaiKhoan);
+  if (loai) request.input('loai', sql.NVarChar, loai);
+
+  const readSelect = hasRead
+    ? `CASE WHEN d.[MaThongBao] IS NOT NULL THEN 1 ELSE 0 END AS daDoc`
+    : `CONVERT(bit, 0) AS daDoc`;
+
+  const readJoin = hasRead
+    ? `LEFT JOIN dbo.ThongBaoDaDoc d ON d.[MaThongBao] = t.[MãThôngBáo] AND d.[MaTaiKhoan] = @maTaiKhoan`
+    : '';
+
+  const result = await request.query(`
+    SELECT
+      t.[MãThôngBáo] AS maThongBao,
+      t.[TiêuĐề] AS tieuDe,
+      t.[NộiDung] AS noiDung,
+      t.[Loại] AS loai,
+      t.[ThờiĐiểm] AS thoiDiem,
+      ${readSelect}
+    FROM dbo.ThongBao t
+    ${readJoin}
+    WHERE 1=1 ${whereExtra}
+    ORDER BY t.[ThờiĐiểm] DESC
+    OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+  `);
+
+  return { items: result.recordset.map((row) => ({ ...mapRow(row), daDoc: Boolean(row.daDoc) })), total };
+}
+
+export async function markNotificationRead(maTaiKhoan, maThongBao) {
+  const pool = await getPool();
+  const chk = await pool.request().query(`
+    SELECT CASE WHEN OBJECT_ID(N'dbo.ThongBaoDaDoc', N'U') IS NOT NULL THEN 1 ELSE 0 END AS ok
+  `);
+  if (chk.recordset[0]?.ok !== 1) return { ok: true, skipped: true };
+  await getNotification(maThongBao);
+  await pool
+    .request()
+    .input('maTaiKhoan', sql.UniqueIdentifier, maTaiKhoan)
+    .input('maThongBao', sql.UniqueIdentifier, maThongBao)
+    .query(`
+      INSERT INTO dbo.ThongBaoDaDoc ([MaTaiKhoan], [MaThongBao])
+      SELECT @maTaiKhoan, @maThongBao
+      WHERE NOT EXISTS (
+        SELECT 1 FROM dbo.ThongBaoDaDoc
+        WHERE [MaTaiKhoan] = @maTaiKhoan AND [MaThongBao] = @maThongBao
+      )
+    `);
+  return { ok: true };
+}

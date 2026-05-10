@@ -9,9 +9,10 @@ export interface ApiUser {
   laQuanTri?: boolean;
   laGiaoVien?: boolean;
   laPhuHuynh?: boolean;
+  chiDoc?: boolean;
 }
 
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
+export const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
 const ACCESS_TOKEN_KEY = 'edu_access_token';
 const REFRESH_TOKEN_KEY = 'edu_refresh_token';
 
@@ -80,6 +81,11 @@ export async function fetchDashboardOverview() {
 
 export async function fetchRealtimeClasses() {
   return request('/monitor/thoi-gian-thuc');
+}
+
+/** SSE endpoint (no auth) — same origin as API_BASE_URL */
+export function getMonitorStreamUrl() {
+  return `${API_BASE_URL}/monitor/stream`;
 }
 
 export async function fetchReportSummary() {
@@ -212,6 +218,57 @@ export async function deleteTeacher(maGiaoVien: string) {
 
 export async function fetchClass(maLop: string) {
   return request(`/lop-hoc/${encodeURIComponent(maLop)}`);
+}
+
+export async function fetchMyNotifications(page = 1, pageSize = 30) {
+  return request(`/thong-bao/cua-toi?page=${page}&pageSize=${pageSize}`);
+}
+
+export async function markNotificationReadApi(maThongBao: string) {
+  return request(`/thong-bao/${encodeURIComponent(maThongBao)}/da-doc`, { method: 'POST' });
+}
+
+export async function fetchSystemInfo() {
+  return request('/he-thong/thong-tin');
+}
+
+export async function fetchSystemStatus() {
+  return request('/he-thong/trang-thai');
+}
+
+export async function patchMonitoringThresholds(input: {
+  tyLeThamDuToiThieu?: number;
+  nguongTapTrungToiThieu?: number;
+}) {
+  return request('/he-thong/nguong-giam-sat', { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export async function patchTenantDisplayName(tenHienThi: string) {
+  return request('/he-thong/ten-hien-thi', { method: 'PATCH', body: JSON.stringify({ tenHienThi }) });
+}
+
+export async function fetchAuditLog(page = 1, pageSize = 40) {
+  return request(`/he-thong/nhat-ky?page=${page}&pageSize=${pageSize}`);
+}
+
+export async function fetchDevices() {
+  return request('/he-thong/thiet-bi');
+}
+
+export async function createDeviceApi(input: {
+  ten: string;
+  maLop?: string | null;
+  urlKetNoi?: string | null;
+  trangThai?: string;
+  ghiChu?: string | null;
+}) {
+  return request('/he-thong/thiet-bi', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function fetchParentSummary(fromIso: string, toIso: string) {
+  return request(
+    `/phu-huynh/bao-cao-tom-tat?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+  );
 }
 
 export function getCsvExportUrl() {

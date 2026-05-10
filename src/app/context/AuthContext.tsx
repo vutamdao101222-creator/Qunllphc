@@ -9,13 +9,16 @@ export interface AppUser {
   role: UserRole;
   email?: string;
   username?: string;
+  chiDoc?: boolean;
   parentClassIds?: string[];
   parentStudentIds?: string[];
 }
 
+export type LoginResult = { ok: true } | { ok: false; message: string };
+
 interface AuthContextType {
   user: AppUser | null;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   isRole: (role: UserRole) => boolean;
   loading: boolean;
@@ -30,6 +33,7 @@ function mapApiUser(apiUser: ApiUser): AppUser {
     role: apiUser.role,
     email: apiUser.email,
     username: apiUser.tenDangNhap,
+    chiDoc: Boolean(apiUser.chiDoc),
     // demo defaults for parent page if backend has no relation table yet
     parentClassIds: apiUser.role === 'parent' ? ['c1', 'c4'] : undefined,
     parentStudentIds: apiUser.role === 'parent' ? ['st1', 'st2'] : undefined,
@@ -65,15 +69,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     bootstrap();
   }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string): Promise<LoginResult> => {
+    const u = username.trim();
+    if (!u) {
+      return { ok: false, message: 'Vui lòng nhập tên đăng nhập.' };
+    }
     try {
-      const apiUser = await loginApi(username, password);
+      const apiUser = await loginApi(u, password);
       const nextUser = mapApiUser(apiUser);
       setUser(nextUser);
       localStorage.setItem('edu_user', JSON.stringify(nextUser));
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      if (
+        raw === 'Failed to fetch' ||
+        raw.includes('NetworkError') ||
+        raw.toLowerCase().includes('network')
+      ) {
+        return {
+          ok: false,
+          message:
+            'Không kết nối được máy chủ API. Hãy chạy backend (ví dụ npm run api) và kiểm tra cổng 4000.',
+        };
+      }
+      return { ok: false, message: raw || 'Đăng nhập thất bại.' };
     }
   };
 

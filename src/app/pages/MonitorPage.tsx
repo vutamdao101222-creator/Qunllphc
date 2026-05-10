@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useParams, useNavigate } from 'react-router';
-import { fetchRealtimeClasses } from '../lib/api';
-import { fetchClass } from '../lib/api';
+import { Link, useParams, useNavigate, useLocation } from 'react-router';
+import { fetchRealtimeClasses, fetchClass, getMonitorStreamUrl } from '../lib/api';
 import {
   CLASSES, LIVE_DATA, LiveData,
   getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
@@ -15,6 +14,57 @@ import {
   ArrowLeft, Users, Activity, Clock, AlertTriangle,
   Wifi, WifiOff, Video, TrendingUp, TrendingDown
 } from 'lucide-react';
+
+function normalizeMaLop(s: string) {
+  return String(s || '').trim().toUpperCase();
+}
+
+function extractRealtimeList(raw: unknown): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { classes?: unknown }).classes)) {
+    return (raw as { classes: any[] }).classes;
+  }
+  return [];
+}
+
+function findRealtimeRow(list: any[], classId: string) {
+  const n = normalizeMaLop(classId);
+  return list.find((x) => normalizeMaLop(x?.maLop ?? x?.classId) === n) ?? null;
+}
+
+/** Backend có thể trả isActive=false khi vẫn có BuoiHoc active nhưng chỉ số mới nhất chưa gắn đúng mã buổi — tránh danh sách trống sau khi điều hướng. */
+function coerceLiveFromApiItem(item: any): LiveData {
+  const sessionOn = Boolean(item?.maBuoiHocDangHoatDong);
+  const effectiveActive = Boolean(item?.isActive) || sessionOn;
+  return {
+    classId: item.maLop,
+    isActive: effectiveActive,
+    currentStudents: Number(item.currentStudents) || 0,
+    concentrationLevel: Number(item.concentrationLevel) || 0,
+    sessionStart: '07:00',
+    alertStatus: item.alertStatus ?? 'normal',
+    last30MinConcentration: [],
+    last30MinStudents: [],
+  };
+}
+
+function computeAlertStatus(
+  concentration: number,
+  currentStudents: number,
+  expectedStudents: number,
+): 'normal' | 'low_concentration' | 'low_attendance' | 'late_start' {
+  if (expectedStudents > 0 && currentStudents < Math.round(expectedStudents * 0.7)) return 'low_attendance';
+  if (concentration < 60) return 'low_concentration';
+  return 'normal';
+}
+
+function hasMeaningfulSnapshot(row: any | null) {
+  if (!row) return false;
+  if (row.thoiDiem) return true;
+  const c = Number(row.concentrationLevel);
+  const s = Number(row.currentStudents);
+  return (Number.isFinite(c) && c > 0) || (Number.isFinite(s) && s > 0);
+}
 
 // Mini circular concentration indicator
 function ConcentrationGauge({ value }: { value: number }) {
@@ -193,6 +243,37 @@ function ClassMonitorCard({ live }: { live: LiveData }) {
 }
 
 // ===== DETAIL VIEW =====
+function enrichRealtimeRow(found: any | null, classMeta: any | null, classId: string) {
+  const expected = Math.max(0, Number(classMeta?.siSoDuKien) || 0);
+  const exp = expected || 30;
+  if (found && hasMeaningfulSnapshot(found)) {
+    const conc = Number(found.concentrationLevel);
+    const present = Number(found.currentStudents);
+    return {
+      ...found,
+      alertStatus: computeAlertStatus(conc, present, exp),
+      __simulated: false,
+    };
+  }
+  const basePresent = found ? Number(found.currentStudents) : NaN;
+  const baseConc = found ? Number(found.concentrationLevel) : NaN;
+  const present = Number.isFinite(basePresent) && basePresent > 0
+    ? Math.min(exp, basePresent)
+    : Math.min(exp, Math.max(1, Math.round(exp * 0.88)));
+  const conc = Number.isFinite(baseConc) && baseConc > 0
+    ? Math.min(100, baseConc)
+    : 74;
+  return {
+    ...(found || {}),
+    maLop: found?.maLop ?? classId,
+    currentStudents: present,
+    concentrationLevel: conc,
+    isActive: true,
+    alertStatus: computeAlertStatus(conc, present, exp),
+    __simulated: true,
+  };
+}
+
 function MonitorDetail({ classId }: { classId: string }) {
   const navigate = useNavigate();
   const cls = CLASSES.find(c => c.id === classId);
@@ -201,50 +282,139 @@ function MonitorDetail({ classId }: { classId: string }) {
   const room = cls ? getRoom(cls.roomId) : null;
   const [remoteClass, setRemoteClass] = useState<any | null>(null);
   const [remoteRealtime, setRemoteRealtime] = useState<any | null>(null);
-  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteLoading, setRemoteLoading] = useState(() => !cls || !live);
+  const [streamConnected, setStreamConnected] = useState(false);
+  const remoteClassRef = useRef<any | null>(null);
+  remoteClassRef.current = remoteClass;
+  const loadSeqRef = useRef(0);
 
   const [concentration, setConcentration] = useState(live?.concentrationLevel ?? 0);
   const [students, setStudents] = useState(live?.currentStudents ?? 0);
   const [concHistory, setConcHistory] = useState(live?.last30MinConcentration ?? []);
   const [studHistory, setStudHistory] = useState(live?.last30MinStudents ?? []);
 
+  const isRemoteDetail = !cls || !live;
+
   useEffect(() => {
+    if (!isRemoteDetail) return;
+    const seq = ++loadSeqRef.current;
     let mounted = true;
+    const applyList = (raw: unknown) => {
+      if (!mounted || seq !== loadSeqRef.current) return;
+      const list = extractRealtimeList(raw);
+      const found = findRealtimeRow(list, classId);
+      const meta = remoteClassRef.current;
+      if (!meta) return;
+      setRemoteRealtime(enrichRealtimeRow(found, meta, classId));
+    };
+
     const loadRemote = async () => {
-      if (cls && live) return;
       setRemoteLoading(true);
+      setRemoteClass(null);
+      setRemoteRealtime(null);
+      remoteClassRef.current = null;
       try {
         const [c, rt] = await Promise.all([
           fetchClass(classId).catch(() => null),
           fetchRealtimeClasses().catch(() => null),
         ]);
-        if (!mounted) return;
+        if (!mounted || seq !== loadSeqRef.current) return;
+        remoteClassRef.current = c;
         setRemoteClass(c);
-        const found = Array.isArray(rt) ? rt.find((x: any) => x?.maLop === classId) : null;
-        setRemoteRealtime(found || null);
+        if (!c) {
+          setRemoteRealtime(null);
+          return;
+        }
+        const list = extractRealtimeList(rt);
+        const found = findRealtimeRow(list, classId);
+        setRemoteRealtime(enrichRealtimeRow(found, c, classId));
+        fetchRealtimeClasses()
+          .then((raw) => {
+            if (!mounted || seq !== loadSeqRef.current) return;
+            applyList(raw);
+          })
+          .catch(() => {});
       } finally {
-        if (mounted) setRemoteLoading(false);
+        if (mounted && seq === loadSeqRef.current) setRemoteLoading(false);
       }
     };
+
     loadRemote();
+    const streamUrl = getMonitorStreamUrl();
+    const source = new EventSource(streamUrl);
+    source.onopen = () => {
+      if (mounted) setStreamConnected(true);
+    };
+    source.addEventListener('connected', () => {
+      if (mounted) setStreamConnected(true);
+    });
+    source.addEventListener('realtime', (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data);
+        applyList(payload?.classes ?? payload);
+      } catch {
+        /* ignore */
+      }
+    });
+    source.onerror = () => {
+      if (mounted) setStreamConnected(false);
+    };
+    const poll = setInterval(() => {
+      fetchRealtimeClasses()
+        .then((raw) => {
+          if (!mounted) return;
+          applyList(raw);
+        })
+        .catch(() => {});
+    }, 15000);
+
     return () => {
       mounted = false;
+      source.close();
+      clearInterval(poll);
     };
-  }, [classId, cls, live]);
+  }, [classId, isRemoteDetail]);
 
   useEffect(() => {
+    if (!isRemoteDetail || !remoteRealtime?.__simulated || !remoteClass) return;
+    const expected = Math.max(1, Number(remoteClass.siSoDuKien) || 30);
     const iv = setInterval(() => {
-      const newConc = Math.max(0, Math.min(100, concentration + Math.round((Math.random() - 0.5) * 6)));
-      const newStud = Math.max(0, Math.min(cls?.expectedStudents ?? 40, students + Math.round((Math.random() - 0.5) * 2)));
-      const now = new Date();
-      const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      setConcentration(newConc);
-      setStudents(newStud);
-      setConcHistory(h => [...h.slice(-14), { time: timeStr, value: newConc }]);
-      setStudHistory(h => [...h.slice(-14), { time: timeStr, value: newStud }]);
+      setRemoteRealtime((prev: any) => {
+        if (!prev?.__simulated) return prev;
+        const p = Number(prev.currentStudents);
+        const c = Number(prev.concentrationLevel);
+        const nextP = Math.max(0, Math.min(expected, p + Math.round((Math.random() - 0.5) * 2)));
+        const nextC = Math.max(0, Math.min(100, c + Math.round((Math.random() - 0.5) * 5)));
+        return {
+          ...prev,
+          currentStudents: nextP,
+          concentrationLevel: nextC,
+          alertStatus: computeAlertStatus(nextC, nextP, expected),
+        };
+      });
     }, 5000);
     return () => clearInterval(iv);
-  }, [concentration, students]);
+  }, [isRemoteDetail, remoteRealtime?.__simulated, remoteClass]);
+
+  useEffect(() => {
+    if (!cls || !live) return;
+    const cap = cls.expectedStudents;
+    const iv = setInterval(() => {
+      const now = new Date();
+      const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      setConcentration((c) => {
+        const newC = Math.max(0, Math.min(100, c + Math.round((Math.random() - 0.5) * 6)));
+        setConcHistory((h) => [...h.slice(-14), { time: timeStr, value: newC }]);
+        return newC;
+      });
+      setStudents((s) => {
+        const newS = Math.max(0, Math.min(cap, s + Math.round((Math.random() - 0.5) * 2)));
+        setStudHistory((h) => [...h.slice(-14), { time: timeStr, value: newS }]);
+        return newS;
+      });
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [cls?.id, live?.classId]);
 
   if (!cls || !live) {
     if (remoteLoading) {
@@ -254,7 +424,13 @@ function MonitorDetail({ classId }: { classId: string }) {
       const expected = remoteClass.siSoDuKien ?? 0;
       const conc = Number(remoteRealtime?.concentrationLevel ?? 0);
       const present = Number(remoteRealtime?.currentStudents ?? 0);
-      const alertStatus = remoteRealtime?.alertStatus ?? 'normal';
+      const fromApi = remoteRealtime && !remoteRealtime.__simulated;
+      const alertStatus = remoteRealtime?.alertStatus ?? computeAlertStatus(conc, present, Number(expected) || 30);
+      const statusLine = streamConnected
+        ? 'Đang cập nhật qua luồng SSE từ máy chủ.'
+        : fromApi
+          ? 'Dữ liệu từ API (polling 15 giây). Mở server và simulation job để có SSE.'
+          : 'Dữ liệu mô phỏng realtime — khi có snapshot trong CSDL sẽ chuyển sang số liệu thật.';
       return (
         <div className="p-4 lg:p-6 space-y-6">
           <div className="flex items-center gap-4">
@@ -279,28 +455,31 @@ function MonitorDetail({ classId }: { classId: string }) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-gray-800">Trạng thái realtime</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {remoteRealtime ? 'Dữ liệu đang lấy từ API realtime.' : 'Chưa có dữ liệu realtime cho lớp này.'}
-                </p>
+                <p className="text-xs text-gray-500 mt-0.5">{statusLine}</p>
               </div>
-              {remoteRealtime ? (
+              {streamConnected ? (
                 <div className="flex items-center gap-1.5 bg-green-50 text-green-700 text-xs px-2 py-1 rounded-full border border-green-200">
                   <Wifi size={10} />
-                  <span>Online</span>
+                  <span>SSE</span>
+                </div>
+              ) : fromApi ? (
+                <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full border border-blue-200">
+                  <Wifi size={10} />
+                  <span>API</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 bg-gray-50 text-gray-600 text-xs px-2 py-1 rounded-full border border-gray-200">
-                  <WifiOff size={10} />
-                  <span>Chưa có</span>
+                <div className="flex items-center gap-1.5 bg-amber-50 text-amber-800 text-xs px-2 py-1 rounded-full border border-amber-200">
+                  <Activity size={10} />
+                  <span>Mô phỏng</span>
                 </div>
               )}
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
               {[
-                { label: 'Học sinh hiện diện', value: remoteRealtime ? `${present}/${expected || '—'}` : '—', icon: <Users size={18} className="text-blue-600" />, bg: 'bg-blue-50' },
-                { label: 'Mức tập trung', value: remoteRealtime ? `${conc}%` : '—', icon: <Activity size={18} className="text-green-600" />, bg: 'bg-green-50' },
-                { label: 'Tỷ lệ tham dự', value: remoteRealtime && expected ? `${Math.round((present / expected) * 100)}%` : '—', icon: <TrendingUp size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
+                { label: 'Học sinh hiện diện', value: `${present}/${expected || '—'}`, icon: <Users size={18} className="text-blue-600" />, bg: 'bg-blue-50' },
+                { label: 'Mức tập trung', value: `${conc}%`, icon: <Activity size={18} className="text-green-600" />, bg: 'bg-green-50' },
+                { label: 'Tỷ lệ tham dự', value: expected ? `${Math.round((present / Number(expected)) * 100)}%` : '—', icon: <TrendingUp size={18} className="text-indigo-600" />, bg: 'bg-indigo-50' },
                 { label: 'Trạng thái lớp', value: getAlertLabel(alertStatus), icon: <AlertTriangle size={18} className={alertStatus !== 'normal' ? 'text-amber-600' : 'text-gray-400'} />, bg: alertStatus !== 'normal' ? 'bg-amber-50' : 'bg-gray-50' },
               ].map((m, i) => (
                 <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
@@ -452,28 +631,38 @@ function MonitorDetail({ classId }: { classId: string }) {
 
 // ===== MAIN PAGE =====
 export default function MonitorPage() {
-  const { classId } = useParams<{ classId: string }>();
+  const { classId } = useParams<{ classId?: string }>();
+  const location = useLocation();
   const [remoteLive, setRemoteLive] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'alert'>('all');
+  const [listLoading, setListLoading] = useState(() => !classId);
 
   useEffect(() => {
-    if (classId) return;
+    if (classId) {
+      setListLoading(false);
+      return;
+    }
 
     let mounted = true;
     const load = async () => {
       try {
         const data = await fetchRealtimeClasses();
-        if (mounted) setRemoteLive(data);
+        if (mounted) setRemoteLive(extractRealtimeList(data));
       } catch {
-        // keep local mock fallback
+        // giữ remoteLive cũ / sẽ fallback LIVE_DATA
       }
     };
-    load();
-    const source = new EventSource('http://localhost:4000/api/v1/monitor/stream');
+
+    setListLoading(true);
+    load().finally(() => {
+      if (mounted) setListLoading(false);
+    });
+
+    const source = new EventSource(getMonitorStreamUrl());
     source.addEventListener('realtime', (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data);
-        if (mounted && payload.classes) setRemoteLive(payload.classes);
+        if (mounted) setRemoteLive(extractRealtimeList(payload?.classes ?? payload));
       } catch {
         // ignore parse errors
       }
@@ -484,25 +673,30 @@ export default function MonitorPage() {
       source.close();
       clearInterval(iv);
     };
-  }, [classId]);
+  }, [classId, location.key, location.pathname]);
 
-  if (classId) return <MonitorDetail classId={classId} />;
+  if (classId) return <MonitorDetail key={classId} classId={classId} />;
 
-  const normalizedRemote = remoteLive.map((item) => ({
-    classId: item.maLop,
-    isActive: item.isActive,
-    currentStudents: item.currentStudents,
-    concentrationLevel: item.concentrationLevel,
-    sessionStart: '07:00',
-    alertStatus: item.alertStatus,
-    last30MinConcentration: [],
-    last30MinStudents: [],
-  }));
+  const normalizedRemote = remoteLive.map((item) => coerceLiveFromApiItem(item));
   const activeClasses = (normalizedRemote.length > 0 ? normalizedRemote : LIVE_DATA).filter(l => l.isActive);
 
   const displayed = filter === 'alert'
     ? activeClasses.filter(l => l.alertStatus !== 'normal')
     : activeClasses;
+
+  if (listLoading) {
+    return (
+      <div className="p-4 lg:p-6 flex flex-col items-center justify-center min-h-[320px] gap-4 text-gray-600">
+        <div className="flex items-center gap-2 text-blue-600">
+          <Activity size={28} className="animate-pulse" />
+          <span className="text-sm font-medium">Đang tải dữ liệu lớp học…</span>
+        </div>
+        <p className="text-xs text-gray-400 text-center max-w-sm">
+          Vui lòng đợi trong giây lát. Hệ thống đang gọi API theo dõi thời gian thực.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-6">

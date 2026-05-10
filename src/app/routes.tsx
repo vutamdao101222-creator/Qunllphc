@@ -12,6 +12,8 @@ import ClassManagementPage from './pages/ClassManagementPage';
 import TeacherManagementPage from './pages/TeacherManagementPage';
 import ParentPage from './pages/ParentPage';
 import AdminManagementPage from './pages/AdminManagementPage';
+import SystemPage from './pages/SystemPage';
+import NotificationsPage from './pages/NotificationsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 
@@ -45,11 +47,7 @@ export const router = createBrowserRouter([
         element: <DashboardPage />,
       },
       {
-        path: 'monitor',
-        element: <MonitorPage />,
-      },
-      {
-        path: 'monitor/:classId',
+        path: 'monitor/:classId?',
         element: <MonitorPage />,
       },
       {
@@ -91,6 +89,18 @@ export const router = createBrowserRouter([
             <AdminManagementPage />
           </AuthGuard>
         ),
+      },
+      {
+        path: 'system',
+        element: (
+          <AuthGuard allowedRoles={['admin']}>
+            <SystemPage />
+          </AuthGuard>
+        ),
+      },
+      {
+        path: 'notifications',
+        element: <NotificationsPage />,
       },
       {
         path: 'parent',

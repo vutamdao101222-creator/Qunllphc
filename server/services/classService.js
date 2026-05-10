@@ -10,6 +10,12 @@ const SORT_COLUMN_MAP = {
   siSoDuKien: 'l.[SĩSốDựKiến]',
 };
 
+/** Tránh lỗi "Cannot resolve the collation conflict" khi JOIN mã giáo viên giữa hai bảng. */
+const JOIN_GIAO_VIEN = `
+  LEFT JOIN dbo.GiaoVien g
+    ON g.[MãGiáoViên] COLLATE DATABASE_DEFAULT = l.[MãGiáoViên] COLLATE DATABASE_DEFAULT
+`;
+
 function mapRow(row) {
   return {
     maLop: row.maLop,
@@ -31,7 +37,9 @@ export async function listClasses({ page, pageSize, q, sort, order, maGiaoVien }
 
   const filters = [];
   if (q) filters.push('(l.[TênLớp] LIKE @q OR l.[MãLớp] LIKE @q OR l.[MônHọc] LIKE @q)');
-  if (maGiaoVien) filters.push('l.[MãGiáoViên] = @maGiaoVien');
+  if (maGiaoVien) {
+    filters.push('l.[MãGiáoViên] COLLATE DATABASE_DEFAULT = @maGiaoVien');
+  }
   const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
 
   const totalReq = pool.request();
@@ -56,7 +64,7 @@ export async function listClasses({ page, pageSize, q, sort, order, maGiaoVien }
       g.[HọTên] AS tenGiaoVien,
       l.[SĩSốDựKiến] AS siSoDuKien
     FROM dbo.LopHoc l
-    INNER JOIN dbo.GiaoVien g ON g.[MãGiáoViên] = l.[MãGiáoViên]
+    ${JOIN_GIAO_VIEN}
     ${where}
     ORDER BY ${sortColumn} ${sortDir}
     OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -79,7 +87,7 @@ export async function getClass(maLop) {
         g.[HọTên] AS tenGiaoVien,
         l.[SĩSốDựKiến] AS siSoDuKien
       FROM dbo.LopHoc l
-      INNER JOIN dbo.GiaoVien g ON g.[MãGiáoViên] = l.[MãGiáoViên]
+      ${JOIN_GIAO_VIEN}
       WHERE l.[MãLớp] = @maLop
     `);
   const row = result.recordset[0];

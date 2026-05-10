@@ -6,6 +6,7 @@ import { paginationSchema, buildPageResult } from '../utils/pagination.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { createMetric, listMetrics } from '../services/metricsService.js';
 import { assertTeacherOwnsClass } from '../services/authorizationService.js';
+import { denyIfReadOnly } from '../middleware/readOnly.js';
 
 const router = Router();
 
@@ -37,6 +38,7 @@ router.post(
   '/chi-so-tap-trung',
   requireAuth,
   requireRoles(['admin', 'teacher']),
+  denyIfReadOnly,
   validateBody(createSchema),
   asyncHandler(async (req, res) => {
     await assertTeacherOwnsClass(req, req.body.maLop);

@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router';
+import React, { useEffect, useState } from 'react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, MonitorPlay, BookOpen, BarChart3,
   Settings, Users, CalendarDays, Bell, LogOut, Menu, X,
   ChevronRight, GraduationCap, Home, ShieldCheck
 } from 'lucide-react';
-import { NOTIFICATIONS } from '../data/mockData';
+import { fetchMyNotifications } from '../lib/api';
 
 interface NavItem {
   to: string;
@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/classes', icon: <BookOpen size={18} />, label: 'Quản lý lớp học', roles: ['admin'] },
   { to: '/teachers', icon: <Users size={18} />, label: 'Quản lý giáo viên', roles: ['admin'] },
   { to: '/admin', icon: <ShieldCheck size={18} />, label: 'Admin điều phối', roles: ['admin'] },
+  { to: '/system', icon: <Settings size={18} />, label: 'Vận hành hệ thống', roles: ['admin'] },
   { to: '/parent', icon: <Home size={18} />, label: 'Thông tin phụ huynh', roles: ['parent', 'admin'] },
 ];
 
@@ -32,6 +33,24 @@ export function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
+  const [notifPreview, setNotifPreview] = useState<any[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchMyNotifications(1, 8)
+      .then((data) => {
+        if (!mounted) return;
+        setNotifPreview(data?.items ?? []);
+      })
+      .catch(() => {
+        if (mounted) setNotifPreview([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const unreadHeader = notifPreview.filter((n) => !n.daDoc).length;
 
   const filteredNav = NAV_ITEMS.filter(item =>
     user && item.roles.includes(user.role)
@@ -161,9 +180,11 @@ export function Layout() {
                 className="relative w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
               >
                 <Bell size={18} />
-                <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full text-white flex items-center justify-center" style={{ fontSize: 10 }}>
-                  {NOTIFICATIONS.filter(n => n.type === 'alert' || n.type === 'warning').length}
-                </span>
+                {unreadHeader > 0 && (
+                  <span className="absolute top-0 right-0 min-w-[1rem] h-4 px-0.5 bg-red-500 rounded-full text-white flex items-center justify-center" style={{ fontSize: 10 }}>
+                    {unreadHeader > 9 ? '9+' : unreadHeader}
+                  </span>
+                )}
               </button>
 
               {showNotif && (
@@ -172,26 +193,32 @@ export function Layout() {
                     <div className="font-semibold text-gray-800">Thông báo</div>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
-                    {NOTIFICATIONS.slice(0, 5).map(n => (
-                      <div key={n.id} className="p-3 border-b border-gray-50 hover:bg-gray-50 cursor-pointer">
-                        <div className="flex items-start gap-2">
-                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
-                            n.type === 'alert' ? 'bg-red-500' :
-                            n.type === 'warning' ? 'bg-amber-500' :
-                            n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
-                          }`} />
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 leading-tight">{n.title}</div>
-                            <div className="text-xs text-gray-500 mt-0.5">{n.date} · {n.time}</div>
+                    {notifPreview.length === 0 ? (
+                      <div className="p-4 text-sm text-gray-400 text-center">Không có thông báo gần đây.</div>
+                    ) : (
+                      notifPreview.map((n) => (
+                        <div key={n.maThongBao} className="p-3 border-b border-gray-50 hover:bg-gray-50">
+                          <div className="flex items-start gap-2">
+                            <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                              n.loai === 'alert' ? 'bg-red-500' :
+                              n.loai === 'warning' ? 'bg-amber-500' :
+                              n.loai === 'reminder' ? 'bg-indigo-500' : 'bg-blue-500'
+                            }`} />
+                            <div>
+                              <div className="text-sm font-medium text-gray-700 leading-tight">{n.tieuDe}</div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {n.thoiDiem ? new Date(n.thoiDiem).toLocaleString('vi-VN') : ''}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                   <div className="p-3 text-center">
-                    <button className="text-sm text-blue-600 hover:underline" onClick={() => setShowNotif(false)}>
+                    <Link to="/notifications" className="text-sm text-blue-600 hover:underline" onClick={() => setShowNotif(false)}>
                       Xem tất cả
-                    </button>
+                    </Link>
                   </div>
                 </div>
               )}

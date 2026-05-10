@@ -12,6 +12,8 @@ import {
   listTeachers,
   updateTeacher,
 } from '../services/teacherService.js';
+import { denyIfReadOnly } from '../middleware/readOnly.js';
+import { auditFromReq } from '../utils/auditFromReq.js';
 
 const router = Router();
 
@@ -61,9 +63,11 @@ router.post(
   '/giao-vien',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateBody(createSchema),
   asyncHandler(async (req, res) => {
     const data = await createTeacher(req.body);
+    auditFromReq(req, 'GIAO_VIEN_TAO', data.maGiaoVien, req.body);
     res.status(201).json(data);
   }),
 );
@@ -72,10 +76,12 @@ router.patch(
   '/giao-vien/:maGiaoVien',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(codeParam),
   validateBody(updateSchema),
   asyncHandler(async (req, res) => {
     const data = await updateTeacher(req.params.maGiaoVien, req.body);
+    auditFromReq(req, 'GIAO_VIEN_CAP_NHAT', req.params.maGiaoVien, req.body);
     res.json(data);
   }),
 );
@@ -84,10 +90,12 @@ router.put(
   '/giao-vien/:maGiaoVien',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(codeParam),
   validateBody(updateSchema),
   asyncHandler(async (req, res) => {
     const data = await updateTeacher(req.params.maGiaoVien, req.body);
+    auditFromReq(req, 'GIAO_VIEN_CAP_NHAT', req.params.maGiaoVien, req.body);
     res.json(data);
   }),
 );
@@ -96,9 +104,11 @@ router.delete(
   '/giao-vien/:maGiaoVien',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(codeParam),
   asyncHandler(async (req, res) => {
     const data = await deleteTeacher(req.params.maGiaoVien);
+    auditFromReq(req, 'GIAO_VIEN_XOA', req.params.maGiaoVien, {});
     res.json(data);
   }),
 );

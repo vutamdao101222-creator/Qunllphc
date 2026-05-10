@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { fetchParentOverview } from '../lib/api';
+import { fetchParentOverview, fetchParentSummary } from '../lib/api';
 import {
   CLASSES, LIVE_DATA, NOTIFICATIONS, SESSION_REPORTS,
   getTeacher, getRoom, getConcentrationBg, getConcentrationLabel,
@@ -34,6 +34,7 @@ export default function ParentPage() {
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
   const [remoteParentData, setRemoteParentData] = useState<any | null>(null);
+  const [periodReport, setPeriodReport] = useState<any | null>(null);
 
   React.useEffect(() => {
     let mounted = true;
@@ -46,6 +47,23 @@ export default function ParentPage() {
       }
     };
     load();
+  }, []);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 30);
+    fetchParentSummary(from.toISOString(), to.toISOString())
+      .then((r) => {
+        if (mounted) setPeriodReport(r);
+      })
+      .catch(() => {
+        if (mounted) setPeriodReport(null);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const todayLabel = React.useMemo(
@@ -168,6 +186,39 @@ export default function ParentPage() {
       {/* OVERVIEW TAB */}
       {activeTab === 'overview' && (
         <div className="space-y-4">
+          {periodReport && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-5 shadow-sm">
+              <h3 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                <TrendingUp size={18} className="text-blue-600" />
+                Báo cáo tóm tắt 30 ngày (API)
+              </h3>
+              <p className="text-xs text-gray-500 mb-3">
+                Phạm vi: {periodReport.scope === 'linked_classes' ? 'Theo lớp đã liên kết với tài khoản' : 'Toàn hệ thống (chưa gán lớp cho liên kết phụ huynh)'}.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                <div className="bg-white/80 rounded-lg p-3 border border-white">
+                  <div className="text-gray-500 text-xs">Tỷ lệ tham dự TB</div>
+                  <div className="font-semibold text-gray-900">
+                    {periodReport.attendance?.tyLeThamDuTrungBinh != null
+                      ? `${Math.round(periodReport.attendance.tyLeThamDuTrungBinh)}%`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="bg-white/80 rounded-lg p-3 border border-white">
+                  <div className="text-gray-500 text-xs">Tập trung TB</div>
+                  <div className="font-semibold text-gray-900">
+                    {periodReport.concentration?.mucTapTrungTrungBinh != null
+                      ? `${Math.round(periodReport.concentration.mucTapTrungTrungBinh)}%`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="bg-white/80 rounded-lg p-3 border border-white">
+                  <div className="text-gray-500 text-xs">Lần điểm danh</div>
+                  <div className="font-semibold text-gray-900">{periodReport.attendance?.soLanDiemDanh ?? '—'}</div>
+                </div>
+              </div>
+            </div>
+          )}
           {myClasses.map(cls => {
             const teacher = getTeacher(cls.teacherId);
             const room = getRoom(cls.roomId);

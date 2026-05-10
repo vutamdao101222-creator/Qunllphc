@@ -11,6 +11,8 @@ import {
   getAttendance,
   listAttendance,
 } from '../services/attendanceService.js';
+import { denyIfReadOnly } from '../middleware/readOnly.js';
+import { auditFromReq } from '../utils/auditFromReq.js';
 
 const router = Router();
 
@@ -54,10 +56,12 @@ router.post(
   '/diem-danh',
   requireAuth,
   requireRoles(['admin', 'teacher']),
+  denyIfReadOnly,
   validateBody(createSchema),
   asyncHandler(async (req, res) => {
     await assertTeacherOwnsClass(req, req.body.maLop);
     const data = await createAttendance(req.body);
+    auditFromReq(req, 'DIEM_DANH_TAO', req.body.maLop, req.body);
     res.status(201).json(data);
   }),
 );
@@ -66,6 +70,7 @@ router.delete(
   '/diem-danh/:maDiemDanh',
   requireAuth,
   requireRoles(['admin']),
+  denyIfReadOnly,
   validateParams(idParam),
   asyncHandler(async (req, res) => {
     const data = await deleteAttendance(req.params.maDiemDanh);

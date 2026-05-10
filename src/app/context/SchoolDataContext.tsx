@@ -7,6 +7,7 @@ import {
   AssignmentSubmission,
   LEARNING_PROFILES,
   LearningProfile,
+  MOCK_SCHOOL_TODAY,
   ScheduleSlot,
   STUDENT_DAILY_STATUS,
   StudentDailyStatus,
@@ -65,11 +66,12 @@ interface SchoolDataContextType {
   getEffectiveSchedules: (classId: string, fallback: ScheduleSlot[]) => ScheduleSlot[];
   getParentsOfStudent: (studentId: string) => ParentAccount[];
   filterFeedbacks: (items: TeacherFeedback[], period: FeedbackPeriod, category: FeedbackCategory) => TeacherFeedback[];
+  setLearningProfileNote: (studentId: string, note: string) => Promise<void>;
 }
 
-const STORAGE_KEY = 'edu_school_data_v1';
+const STORAGE_KEY = 'edu_school_data_v2';
 const CHANNEL_NAME = 'edu_school_data_channel';
-const TODAY = '08/04/2026';
+const TODAY = MOCK_SCHOOL_TODAY;
 
 interface SchoolStore {
   studentStatuses: StudentDailyStatus[];
@@ -79,6 +81,7 @@ interface SchoolStore {
   parentAccounts: ParentAccount[];
   parentStudentLinks: ParentStudentLink[];
   scheduleAdjustments: ScheduleAdjustment[];
+  learningProfileNotes: Record<string, string>;
 }
 
 export interface ParentAccount {
@@ -152,6 +155,7 @@ const defaultStore: SchoolStore = {
   parentAccounts: defaultParentAccounts,
   parentStudentLinks: defaultParentStudentLinks,
   scheduleAdjustments: [],
+  learningProfileNotes: {},
 };
 
 const SchoolDataContext = createContext<SchoolDataContextType | null>(null);
@@ -169,6 +173,7 @@ function readStore(): SchoolStore {
       parentAccounts: parsed.parentAccounts ?? defaultStore.parentAccounts,
       parentStudentLinks: parsed.parentStudentLinks ?? defaultStore.parentStudentLinks,
       scheduleAdjustments: parsed.scheduleAdjustments ?? defaultStore.scheduleAdjustments,
+      learningProfileNotes: parsed.learningProfileNotes ?? defaultStore.learningProfileNotes,
     };
   } catch {
     return defaultStore;
@@ -481,12 +486,29 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     });
   };
 
+  const learningProfilesMerged = useMemo(
+    () =>
+      LEARNING_PROFILES.map((p) => {
+        const override = store.learningProfileNotes[p.studentId]?.trim();
+        if (!override) return p;
+        return { ...p, suggestedIntervention: override };
+      }),
+    [store.learningProfileNotes],
+  );
+
+  const setLearningProfileNote: SchoolDataContextType['setLearningProfileNote'] = async (studentId, note) => {
+    await updateStore((prev) => ({
+      ...prev,
+      learningProfileNotes: { ...prev.learningProfileNotes, [studentId]: note },
+    }));
+  };
+
   const value = useMemo<SchoolDataContextType>(() => ({
     studentStatuses: store.studentStatuses,
     feedbacks: store.feedbacks,
     assignments: store.assignments,
     submissions: store.submissions,
-    learningProfiles: LEARNING_PROFILES,
+    learningProfiles: learningProfilesMerged,
     parentAccounts: store.parentAccounts,
     parentStudentLinks: store.parentStudentLinks,
     scheduleAdjustments: store.scheduleAdjustments,
@@ -503,7 +525,8 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     getEffectiveSchedules,
     getParentsOfStudent,
     filterFeedbacks,
-  }), [store.studentStatuses, store.feedbacks, store.assignments, store.submissions, store.parentAccounts, store.parentStudentLinks, store.scheduleAdjustments]);
+    setLearningProfileNote,
+  }), [learningProfilesMerged, store.studentStatuses, store.feedbacks, store.assignments, store.submissions, store.parentAccounts, store.parentStudentLinks, store.scheduleAdjustments]);
 
   return (
     <SchoolDataContext.Provider value={value}>

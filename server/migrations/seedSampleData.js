@@ -1,6 +1,58 @@
 import { logInfo } from '../utils/logger.js';
+import { sql } from '../db.js';
 
 const DEFAULT_SEED_COUNT = 30;
+
+async function seedBulkParentsC1(pool) {
+  for (let i = 1; i <= 20; i += 1) {
+    const pad = String(i).padStart(2, '0');
+    const username = `phuhuynh${pad}`;
+    const studentCode = `c1-hs-${pad}`;
+
+    const existing = await pool
+      .request()
+      .input('u', sql.NVarChar, username)
+      .query('SELECT TOP 1 [MãTàiKhoản] AS id FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = @u');
+    let parentId = existing.recordset[0]?.id;
+
+    if (!parentId) {
+      const ins = await pool
+        .request()
+        .input('tenDangNhap', sql.NVarChar, username)
+        .input('matKhau', sql.NVarChar, '123456')
+        .input('hoTen', sql.NVarChar, `Phụ huynh HS ${pad}`)
+        .input('email', sql.NVarChar, `phuhuynh${pad}@school.local`)
+        .query(`
+          INSERT INTO dbo.TaiKhoan (
+            [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+            [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+          )
+          OUTPUT INSERTED.[MãTàiKhoản] AS id
+          VALUES (@tenDangNhap, @matKhau, NULL, @hoTen, @email, 0, 0, 1, 1)
+        `);
+      parentId = ins.recordset[0]?.id;
+    }
+
+    if (!parentId) continue;
+
+    const linkOk = await pool
+      .request()
+      .input('p', sql.UniqueIdentifier, parentId)
+      .input('s', sql.NVarChar, studentCode)
+      .query('SELECT TOP 1 1 AS ok FROM dbo.PhuHuynh_HocSinh WHERE [MaPhuHuynh] = @p AND [MaHocSinh] = @s');
+
+    if (!linkOk.recordset[0]) {
+      await pool
+        .request()
+        .input('p', sql.UniqueIdentifier, parentId)
+        .input('s', sql.NVarChar, studentCode)
+        .query(`
+          INSERT INTO dbo.PhuHuynh_HocSinh ([MaPhuHuynh], [MaHocSinh], [QuanHe])
+          VALUES (@p, @s, N'guardian')
+        `);
+    }
+  }
+}
 
 export async function seedSampleData(pool, seedCount = DEFAULT_SEED_COUNT) {
   const safeSeedCount = Number.isFinite(seedCount) && seedCount > 0 ? Math.floor(seedCount) : DEFAULT_SEED_COUNT;
@@ -38,9 +90,55 @@ export async function seedSampleData(pool, seedCount = DEFAULT_SEED_COUNT) {
       )
       VALUES
       (
-        N'admin', N'123456', NULL, N'Quan tri he thong', N'admin@school.local',
+        N'admin', N'admin123', NULL, N'Quan tri he thong', N'admin@school.local',
         1, 0, 0, 1
       );
+
+    /* Đồng bộ mật khẩu demo (chỉ khi vẫn dùng mật khẩu lưu dạng plain cũ 123456) */
+    UPDATE dbo.TaiKhoan
+    SET [MậtKhẩu] = N'admin123'
+    WHERE [TênĐăngNhập] = N'admin' AND [MậtKhẩu] = N'123456' AND [MậtKhẩuHash] IS NULL;
+
+    /* Giáo viên: Email trùng GiaoVien để findTeacherCodeByAccount hoạt động */
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'gv.nguyenan')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'gv.nguyenan', N'teacher123', NULL, N'Nguyen Van An', N'gv001@school.local',
+        0, 1, 0, 1
+      );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'phuhuynha')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'phuhuynha', N'parent123', NULL, N'Phu huynh demo', N'phuhuynha@school.local',
+        0, 0, 1, 1
+      );
+
+    IF OBJECT_ID(N'dbo.BuoiHoc', N'U') IS NOT NULL
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM dbo.BuoiHoc
+        WHERE [TrạngThái] = N'active'
+          AND [ThờiGianKếtThúc] > SYSDATETIME()
+      )
+      BEGIN
+        INSERT INTO dbo.BuoiHoc ([MãLớp], [ThờiGianBắtĐầu], [ThờiGianKếtThúc], [TrạngThái])
+        VALUES
+          (N'LH10A1', DATEADD(MINUTE, -45, SYSDATETIME()), DATEADD(HOUR, 4, SYSDATETIME()), N'active'),
+          (N'LH11A1', DATEADD(MINUTE, -40, SYSDATETIME()), DATEADD(HOUR, 4, SYSDATETIME()), N'active'),
+          (N'LH12A1', DATEADD(MINUTE, -35, SYSDATETIME()), DATEADD(HOUR, 4, SYSDATETIME()), N'active');
+      END
+    END
   `);
 
   const request = pool.request().input('seedCount', safeSeedCount);
@@ -126,6 +224,12 @@ export async function seedSampleData(pool, seedCount = DEFAULT_SEED_COUNT) {
       FROM nums;
     END;
   `);
+
+  try {
+    await seedBulkParentsC1(pool);
+  } catch (e) {
+    logInfo('Optional parent bulk seed skipped', { message: e?.message || String(e) });
+  }
 
   const countResult = await pool.request().query(`
     SELECT

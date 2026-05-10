@@ -32,6 +32,7 @@ export default function ClassDetailPage() {
     filterFeedbacks,
     addFeedbackReply,
     getParentsOfStudent,
+    setLearningProfileNote,
   } = useSchoolData();
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
@@ -43,7 +44,7 @@ export default function ClassDetailPage() {
   const live = LIVE_DATA.find(l => l.classId === classId);
   const sessions = SESSION_REPORTS.filter(s => s.classId === classId)
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 10);
+    .slice(0, 20);
 
   React.useEffect(() => {
     let mounted = true;
@@ -68,6 +69,7 @@ export default function ClassDetailPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends' | 'attendance' | 'feedback' | 'assignments' | 'profiles'>('overview');
   const classStudents = cls ? SCHOOL_STUDENTS.filter(s => s.classId === cls.id) : [];
   const canSendFeedback = user?.role === 'teacher' || user?.role === 'admin';
+  const canEditAttendance = user?.role === 'teacher' || user?.role === 'admin';
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [feedbackCategory, setFeedbackCategory] = useState<'praise' | 'reminder' | 'discipline'>('reminder');
   const [feedbackTitle, setFeedbackTitle] = useState('');
@@ -75,6 +77,7 @@ export default function ClassDetailPage() {
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
   const [feedbackType, setFeedbackType] = useState<'all' | 'praise' | 'reminder' | 'discipline'>('all');
   const [teacherReplies, setTeacherReplies] = useState<Record<string, string>>({});
+  const [profileEdits, setProfileEdits] = useState<Record<string, string>>({});
   const classAssignments = assignments.filter(a => a.classId === classId);
   const classFeedbacks = useMemo(() => {
     const items = feedbacks
@@ -422,6 +425,9 @@ export default function ClassDetailPage() {
             <div className="space-y-3">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
                 Giáo viên cập nhật điểm danh theo từng học sinh. Phụ huynh sẽ thấy ngay trạng thái hôm nay và giờ vào lớp.
+                {!canEditAttendance && (
+                  <span className="block mt-2 text-indigo-800">Bạn đang xem ở chế độ chỉ đọc — chỉ quản trị hoặc giáo viên mới chỉnh được điểm danh.</span>
+                )}
               </div>
               {classStudents.map(student => {
                 const status = studentStatuses.find(s => s.studentId === student.id && s.date === SCHOOL_TODAY);
@@ -446,17 +452,22 @@ export default function ClassDetailPage() {
                       ].map(item => (
                         <button
                           key={item.value}
-                          onClick={() => setAttendance({
-                            studentId: student.id,
-                            date: SCHOOL_TODAY,
-                            attendance: item.value as 'present' | 'late' | 'absent',
-                            checkInTime: item.value === 'present' ? '06:55' : item.value === 'late' ? '07:10' : '',
-                          })}
+                          type="button"
+                          disabled={!canEditAttendance}
+                          onClick={() => {
+                            if (!canEditAttendance) return;
+                            setAttendance({
+                              studentId: student.id,
+                              date: SCHOOL_TODAY,
+                              attendance: item.value as 'present' | 'late' | 'absent',
+                              checkInTime: item.value === 'present' ? '06:55' : item.value === 'late' ? '07:10' : '',
+                            });
+                          }}
                           className={`text-xs px-3 py-2 rounded-lg border ${
                             status?.attendance === item.value
                               ? 'bg-blue-600 border-blue-600 text-white'
                               : 'bg-white border-gray-200 text-gray-600'
-                          }`}
+                          } ${!canEditAttendance ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           {item.label}
                         </button>
@@ -596,8 +607,10 @@ export default function ClassDetailPage() {
                             {item.readByParent ? 'Phụ huynh đã xem' : 'Chưa xem'}
                           </span>
                           <button
-                            onClick={() => toggleReplyRequested(item.id, !item.replyRequested)}
-                            className="text-[11px] text-blue-600 hover:underline"
+                            type="button"
+                            disabled={!canSendFeedback}
+                            onClick={() => canSendFeedback && toggleReplyRequested(item.id, !item.replyRequested)}
+                            className={`text-[11px] text-blue-600 hover:underline ${!canSendFeedback ? 'opacity-40 cursor-not-allowed' : ''}`}
                           >
                             {item.replyRequested ? 'Tắt xin phản hồi' : 'Xin phản hồi'}
                           </button>
@@ -614,35 +627,38 @@ export default function ClassDetailPage() {
                             ))}
                           </div>
                         )}
-                        <div className="mt-2">
-                          <textarea
-                            rows={2}
-                            value={teacherReplies[item.id] ?? ''}
-                            onChange={e => setTeacherReplies(prev => ({ ...prev, [item.id]: e.target.value }))}
-                            placeholder="Trả lời phụ huynh..."
-                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm resize-none"
-                          />
-                          <button
-                            onClick={async () => {
-                              const text = (teacherReplies[item.id] ?? '').trim();
-                              if (!text) {
-                                toast.error('Vui lòng nhập nội dung trả lời');
-                                return;
-                              }
-                              await addFeedbackReply(item.id, {
-                                fromRole: 'teacher',
-                                authorName: user?.name ?? 'Giáo viên',
-                                date: SCHOOL_TODAY,
-                                content: text,
-                              });
-                              setTeacherReplies(prev => ({ ...prev, [item.id]: '' }));
-                              toast.success('Đã gửi trả lời phụ huynh');
-                            }}
-                            className="mt-1 bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800"
-                          >
-                            Gửi trả lời
-                          </button>
-                        </div>
+                        {canSendFeedback && (
+                          <div className="mt-2">
+                            <textarea
+                              rows={2}
+                              value={teacherReplies[item.id] ?? ''}
+                              onChange={e => setTeacherReplies(prev => ({ ...prev, [item.id]: e.target.value }))}
+                              placeholder="Trả lời phụ huynh..."
+                              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm resize-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const text = (teacherReplies[item.id] ?? '').trim();
+                                if (!text) {
+                                  toast.error('Vui lòng nhập nội dung trả lời');
+                                  return;
+                                }
+                                await addFeedbackReply(item.id, {
+                                  fromRole: 'teacher',
+                                  authorName: user?.name ?? 'Giáo viên',
+                                  date: SCHOOL_TODAY,
+                                  content: text,
+                                });
+                                setTeacherReplies(prev => ({ ...prev, [item.id]: '' }));
+                                toast.success('Đã gửi trả lời phụ huynh');
+                              }}
+                              className="mt-1 bg-slate-700 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800"
+                            >
+                              Gửi trả lời
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -736,6 +752,33 @@ export default function ClassDetailPage() {
                     <p className="text-xs text-gray-600 mt-2"><strong>Điểm mạnh:</strong> {profile.strengths.join(', ')}</p>
                     <p className="text-xs text-gray-600 mt-1"><strong>Cần cải thiện:</strong> {profile.weaknesses.join(', ')}</p>
                     <p className="text-xs text-indigo-700 mt-1"><strong>Gợi ý can thiệp:</strong> {profile.suggestedIntervention}</p>
+                    {canSendFeedback && (
+                      <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+                        <label className="block text-[11px] text-gray-500">Chỉnh sửa gợi ý can thiệp (lưu cục bộ)</label>
+                        <textarea
+                          rows={2}
+                          value={profileEdits[student.id] !== undefined ? profileEdits[student.id] : profile.suggestedIntervention}
+                          onChange={(e) => setProfileEdits((prev) => ({ ...prev, [student.id]: e.target.value }))}
+                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs resize-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const raw = profileEdits[student.id] !== undefined ? profileEdits[student.id] : profile.suggestedIntervention;
+                            await setLearningProfileNote(student.id, raw.trim());
+                            setProfileEdits((prev) => {
+                              const next = { ...prev };
+                              delete next[student.id];
+                              return next;
+                            });
+                            toast.success('Đã lưu gợi ý can thiệp');
+                          }}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                        >
+                          Lưu gợi ý
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

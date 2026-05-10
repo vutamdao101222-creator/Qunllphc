@@ -22,12 +22,12 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     await new Promise(r => setTimeout(r, 600));
-    const success = await login(username, password);
+    const result = await login(username.trim(), password);
     setLoading(false);
-    if (success) {
+    if (result.ok) {
       navigate('/dashboard');
     } else {
-      setError('Tên đăng nhập hoặc mật khẩu không đúng.');
+      setError(result.message);
     }
   };
 
@@ -73,7 +73,7 @@ export default function LoginPage() {
                 type="text"
                 value={username}
                 onChange={e => { setUsername(e.target.value); setError(''); }}
-                placeholder="Nhập tên đăng nhập hoặc email"
+                placeholder="Ví dụ: admin, gv.nguyenan…"
                 className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-all text-sm"
                 required
               />

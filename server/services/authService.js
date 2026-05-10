@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { getPool } from '../db.js';
+import { getPool, sql } from '../db.js';
 import { env } from '../config/env.js';
 import { HttpError } from '../utils/httpError.js';
 
@@ -13,6 +13,7 @@ function mapUser(row) {
     laQuanTri: Boolean(row.laQuanTri),
     laGiaoVien: Boolean(row.laGiaoVien),
     laPhuHuynh: Boolean(row.laPhuHuynh),
+    chiDoc: Boolean(row.chiDoc),
     role: row.laQuanTri ? 'admin' : row.laGiaoVien ? 'teacher' : 'parent',
   };
 }
@@ -32,6 +33,7 @@ function signTokens(user) {
     laQuanTri: user.laQuanTri,
     laGiaoVien: user.laGiaoVien,
     laPhuHuynh: user.laPhuHuynh,
+    chiDoc: user.chiDoc,
   };
   const accessToken = jwt.sign(payload, env.jwt.accessSecret, { expiresIn: env.jwt.accessExpiresIn });
   const refreshToken = jwt.sign({ maTaiKhoan: user.maTaiKhoan, role: user.role }, env.jwt.refreshSecret, {
@@ -101,6 +103,7 @@ export async function loginWithPassword(tenDangNhap, matKhau) {
         [LàQuảnTrị] AS laQuanTri,
         [LàGiáoViên] AS laGiaoVien,
         [LàPhụHuynh] AS laPhuHuynh,
+        CASE WHEN [ChỉĐọc] = 1 THEN 1 ELSE 0 END AS chiDoc,
         [MậtKhẩu] AS matKhau,
         [MậtKhẩuHash] AS matKhauHash
       FROM dbo.TaiKhoan
@@ -109,7 +112,7 @@ export async function loginWithPassword(tenDangNhap, matKhau) {
     `);
 
   const account = result.recordset[0];
-  if (!account) throw new HttpError(401, 'Sai ten dang nhap hoac mat khau');
+  if (!account) throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
 
   let valid = false;
   if (account.matKhauHash) {
@@ -126,7 +129,7 @@ export async function loginWithPassword(tenDangNhap, matKhau) {
     }
   }
 
-  if (!valid) throw new HttpError(401, 'Sai ten dang nhap hoac mat khau');
+  if (!valid) throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
 
   const user = mapUser(account);
   const tokens = signTokens(user);
@@ -144,19 +147,45 @@ export async function loginWithPassword(tenDangNhap, matKhau) {
   return { user, ...tokens };
 }
 
-export function refreshAccessToken(refreshToken) {
+export async function refreshAccessToken(refreshToken) {
   try {
     const payload = jwt.verify(refreshToken, env.jwt.refreshSecret);
+    const pool = await getPool();
+    const r = await pool
+      .request()
+      .input('id', sql.UniqueIdentifier, payload.maTaiKhoan)
+      .query(`
+        SELECT TOP 1
+          [MãTàiKhoản] AS maTaiKhoan,
+          [TênĐăngNhập] AS tenDangNhap,
+          [HọTên] AS hoTen,
+          [Email] AS email,
+          [LàQuảnTrị] AS laQuanTri,
+          [LàGiáoViên] AS laGiaoVien,
+          [LàPhụHuynh] AS laPhuHuynh,
+          CASE WHEN [ChỉĐọc] = 1 THEN 1 ELSE 0 END AS chiDoc
+        FROM dbo.TaiKhoan
+        WHERE [MãTàiKhoản] = @id AND [HoạtĐộng] = 1
+      `);
+    const row = r.recordset[0];
+    if (!row) throw new HttpError(401, 'Refresh token khong hop le');
+    const user = mapUser(row);
     const accessToken = jwt.sign(
       {
-        maTaiKhoan: payload.maTaiKhoan,
-        role: payload.role,
+        maTaiKhoan: user.maTaiKhoan,
+        tenDangNhap: user.tenDangNhap,
+        role: user.role,
+        laQuanTri: user.laQuanTri,
+        laGiaoVien: user.laGiaoVien,
+        laPhuHuynh: user.laPhuHuynh,
+        chiDoc: user.chiDoc,
       },
       env.jwt.accessSecret,
       { expiresIn: env.jwt.accessExpiresIn },
     );
     return { accessToken };
-  } catch {
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
     throw new HttpError(401, 'Refresh token khong hop le');
   }
 }
