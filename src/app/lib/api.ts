@@ -10,6 +10,8 @@ export interface ApiUser {
   laGiaoVien?: boolean;
   laPhuHuynh?: boolean;
   chiDoc?: boolean;
+  /** Mã giáo viên (JOIN TaiKhoan.Email = GiaoVien.Email), có trong JWT sau đăng nhập */
+  maGiaoVien?: string | null;
 }
 
 export const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1').replace(/\/$/, '');
@@ -42,6 +44,8 @@ async function request(path: string, init: RequestInit = {}) {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    // Tránh 304 + body rỗng từ HTTP cache (Chrome có thể cache GET API) → màn hình 0 lớp / JSON null.
+    cache: init.cache ?? 'no-store',
     headers,
   });
 
@@ -218,6 +222,13 @@ export async function deleteTeacher(maGiaoVien: string) {
 
 export async function fetchClass(maLop: string) {
   return request(`/lop-hoc/${encodeURIComponent(maLop)}`);
+}
+
+export async function fetchClassesPage(params: { page?: number; pageSize?: number; q?: string } = {}) {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 50;
+  const q = params.q ? `&q=${encodeURIComponent(params.q)}` : '';
+  return request(`/lop-hoc?page=${page}&pageSize=${pageSize}${q}`);
 }
 
 export async function fetchMyNotifications(page = 1, pageSize = 30) {

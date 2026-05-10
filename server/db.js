@@ -1,5 +1,6 @@
 import sql from 'mssql';
 import { env } from './config/env.js';
+import { logError } from './utils/logger.js';
 
 const sqlConfig = {
   server: env.db.server,
@@ -45,7 +46,13 @@ export async function ensureDatabaseExists() {
 
 export function getPool() {
   if (!poolPromise) {
-    poolPromise = sql.connect(sqlConfig);
+    poolPromise = sql.connect(sqlConfig).then((pool) => {
+      pool.on('error', (err) => {
+        logError('SQL pool connection error; pool will reconnect on next use', err);
+        poolPromise = null;
+      });
+      return pool;
+    });
   }
   return poolPromise;
 }

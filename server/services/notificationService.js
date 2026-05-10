@@ -1,5 +1,6 @@
 import { getPool, sql } from '../db.js';
 import { HttpError } from '../utils/httpError.js';
+import { logError } from '../utils/logger.js';
 
 const SELECT_COLUMNS = `
   [MãThôngBáo] AS maThongBao,
@@ -103,53 +104,64 @@ export async function deleteNotification(maThongBao) {
 }
 
 export async function listNotificationsForUser({ page, pageSize, maTaiKhoan, loai }) {
-  const pool = await getPool();
-  const offset = (page - 1) * pageSize;
-  const filters = [];
-  if (loai) filters.push('t.[Loại] = @loai');
-  const whereExtra = filters.length ? `AND ${filters.join(' AND ')}` : '';
+  try {
+    const pool = await getPool();
 
-  const chk = await pool.request().query(`
-    SELECT CASE WHEN OBJECT_ID(N'dbo.ThongBaoDaDoc', N'U') IS NOT NULL THEN 1 ELSE 0 END AS ok
-  `);
-  const hasRead = chk.recordset[0]?.ok === 1;
+    const tbl = await pool.request().query(`SELECT OBJECT_ID(N'dbo.ThongBao', N'U') AS oid`);
+    if (!tbl.recordset[0]?.oid) {
+      return { items: [], total: 0 };
+    }
 
-  const totalReq = pool.request();
-  if (loai) totalReq.input('loai', sql.NVarChar, loai);
-  const total = (
-    await totalReq.query(`SELECT COUNT(*) AS total FROM dbo.ThongBao t WHERE 1=1 ${whereExtra}`)
-  ).recordset[0].total;
+    const offset = (page - 1) * pageSize;
+    const filters = [];
+    if (loai) filters.push('t.[Loại] = @loai');
+    const whereExtra = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
-  const request = pool.request();
-  request.input('offset', sql.Int, offset);
-  request.input('pageSize', sql.Int, pageSize);
-  request.input('maTaiKhoan', sql.UniqueIdentifier, maTaiKhoan);
-  if (loai) request.input('loai', sql.NVarChar, loai);
+    const chk = await pool.request().query(`
+      SELECT CASE WHEN OBJECT_ID(N'dbo.ThongBaoDaDoc', N'U') IS NOT NULL THEN 1 ELSE 0 END AS ok
+    `);
+    const hasRead = chk.recordset[0]?.ok === 1;
 
-  const readSelect = hasRead
-    ? `CASE WHEN d.[MaThongBao] IS NOT NULL THEN 1 ELSE 0 END AS daDoc`
-    : `CONVERT(bit, 0) AS daDoc`;
+    const totalReq = pool.request();
+    if (loai) totalReq.input('loai', sql.NVarChar, loai);
+    const total = (
+      await totalReq.query(`SELECT COUNT(*) AS total FROM dbo.ThongBao t WHERE 1=1 ${whereExtra}`)
+    ).recordset[0].total;
 
-  const readJoin = hasRead
-    ? `LEFT JOIN dbo.ThongBaoDaDoc d ON d.[MaThongBao] = t.[MãThôngBáo] AND d.[MaTaiKhoan] = @maTaiKhoan`
-    : '';
+    const request = pool.request();
+    request.input('offset', sql.Int, offset);
+    request.input('pageSize', sql.Int, pageSize);
+    request.input('maTaiKhoan', sql.UniqueIdentifier, maTaiKhoan);
+    if (loai) request.input('loai', sql.NVarChar, loai);
 
-  const result = await request.query(`
-    SELECT
-      t.[MãThôngBáo] AS maThongBao,
-      t.[TiêuĐề] AS tieuDe,
-      t.[NộiDung] AS noiDung,
-      t.[Loại] AS loai,
-      t.[ThờiĐiểm] AS thoiDiem,
-      ${readSelect}
-    FROM dbo.ThongBao t
-    ${readJoin}
-    WHERE 1=1 ${whereExtra}
-    ORDER BY t.[ThờiĐiểm] DESC
-    OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
-  `);
+    const readSelect = hasRead
+      ? `CASE WHEN d.[MaThongBao] IS NOT NULL THEN 1 ELSE 0 END AS daDoc`
+      : `CONVERT(bit, 0) AS daDoc`;
 
-  return { items: result.recordset.map((row) => ({ ...mapRow(row), daDoc: Boolean(row.daDoc) })), total };
+    const readJoin = hasRead
+      ? `LEFT JOIN dbo.ThongBaoDaDoc d ON d.[MaThongBao] = t.[MãThôngBáo] AND d.[MaTaiKhoan] = @maTaiKhoan`
+      : '';
+
+    const result = await request.query(`
+      SELECT
+        t.[MãThôngBáo] AS maThongBao,
+        t.[TiêuĐề] AS tieuDe,
+        t.[NộiDung] AS noiDung,
+        t.[Loại] AS loai,
+        t.[ThờiĐiểm] AS thoiDiem,
+        ${readSelect}
+      FROM dbo.ThongBao t
+      ${readJoin}
+      WHERE 1=1 ${whereExtra}
+      ORDER BY t.[ThờiĐiểm] DESC
+      OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+    `);
+
+    return { items: result.recordset.map((row) => ({ ...mapRow(row), daDoc: Boolean(row.daDoc) })), total };
+  } catch (e) {
+    logError('listNotificationsForUser failed', e);
+    return { items: [], total: 0 };
+  }
 }
 
 export async function markNotificationRead(maTaiKhoan, maThongBao) {

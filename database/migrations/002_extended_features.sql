@@ -65,33 +65,77 @@ BEGIN
 END;
 GO
 
+-- ChiSoTapTrung may already include [MãBuổiHọc] from the legacy schema; COL_LENGTH can miss
+-- Unicode-normalization edge cases and re-ADD triggers Msg 2705 (duplicate column in ALTER).
 IF OBJECT_ID(N'dbo.ChiSoTapTrung', N'U') IS NOT NULL
-  AND COL_LENGTH('dbo.ChiSoTapTrung', 'MãBuổiHọc') IS NULL
 BEGIN
-  ALTER TABLE dbo.ChiSoTapTrung ADD [MãBuổiHọc] UNIQUEIDENTIFIER NULL;
-END;
-GO
+  IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns col
+    INNER JOIN sys.tables t ON col.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dbo'
+      AND t.name = N'ChiSoTapTrung'
+      AND col.name = N'MãBuổiHọc'
+  )
+  BEGIN
+    BEGIN TRY
+      ALTER TABLE dbo.ChiSoTapTrung ADD [MãBuổiHọc] UNIQUEIDENTIFIER NULL;
+    END TRY
+    BEGIN CATCH
+      IF ERROR_NUMBER() <> 2705
+        THROW;
+    END CATCH
+  END;
 
-IF OBJECT_ID(N'dbo.ChiSoTapTrung', N'U') IS NOT NULL
-  AND OBJECT_ID(N'dbo.BuoiHoc', N'U') IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_ChiSoTapTrung_BuoiHoc')
-BEGIN
-  ALTER TABLE dbo.ChiSoTapTrung
-  ADD CONSTRAINT FK_ChiSoTapTrung_BuoiHoc FOREIGN KEY ([MãBuổiHọc]) REFERENCES dbo.BuoiHoc ([MãBuổiHọc]);
+  IF OBJECT_ID(N'dbo.BuoiHoc', N'U') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_ChiSoTapTrung_BuoiHoc')
+  BEGIN
+    ALTER TABLE dbo.ChiSoTapTrung
+    ADD CONSTRAINT FK_ChiSoTapTrung_BuoiHoc FOREIGN KEY ([MãBuổiHọc]) REFERENCES dbo.BuoiHoc ([MãBuổiHọc]);
+  END;
 END;
 GO
 
 IF OBJECT_ID(N'dbo.TaiKhoan', N'U') IS NOT NULL
-  AND COL_LENGTH('dbo.TaiKhoan', 'ChỉĐọc') IS NULL
 BEGIN
-  ALTER TABLE dbo.TaiKhoan ADD [ChỉĐọc] BIT NOT NULL DEFAULT 0;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns col
+    INNER JOIN sys.tables t ON col.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dbo' AND t.name = N'TaiKhoan' AND col.name = N'ChỉĐọc'
+  )
+  BEGIN
+    BEGIN TRY
+      ALTER TABLE dbo.TaiKhoan ADD [ChỉĐọc] BIT NOT NULL DEFAULT 0;
+    END TRY
+    BEGIN CATCH
+      IF ERROR_NUMBER() <> 2705
+        THROW;
+    END CATCH
+  END;
 END;
 GO
 
 IF OBJECT_ID(N'dbo.PhuHuynh_HocSinh', N'U') IS NOT NULL
-  AND COL_LENGTH('dbo.PhuHuynh_HocSinh', 'MaLop') IS NULL
 BEGIN
-  ALTER TABLE dbo.PhuHuynh_HocSinh ADD [MaLop] NVARCHAR(20) NULL;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns col
+    INNER JOIN sys.tables t ON col.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dbo' AND t.name = N'PhuHuynh_HocSinh' AND col.name = N'MaLop'
+  )
+  BEGIN
+    BEGIN TRY
+      ALTER TABLE dbo.PhuHuynh_HocSinh ADD [MaLop] NVARCHAR(20) NULL;
+    END TRY
+    BEGIN CATCH
+      IF ERROR_NUMBER() <> 2705
+        THROW;
+    END CATCH
+  END;
 END;
 GO
 

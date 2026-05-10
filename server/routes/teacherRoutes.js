@@ -18,12 +18,23 @@ import { auditFromReq } from '../utils/auditFromReq.js';
 const router = Router();
 
 const codeParam = z.object({ maGiaoVien: z.string().min(1).max(20) });
+
+/** Chuỗi rỗng / null từ client không làm fail .email() */
+const optionalNvarchar = (max) =>
+  z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? undefined : v),
+    z.string().max(max).optional(),
+  );
+
 const createSchema = z.object({
   maGiaoVien: z.string().min(1).max(20),
   hoTen: z.string().min(2).max(100),
   monHoc: z.string().min(1).max(100),
-  soDienThoai: z.string().max(20).optional(),
-  email: z.string().email().max(120).optional(),
+  soDienThoai: optionalNvarchar(20),
+  email: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? undefined : v),
+    z.string().email().max(120).optional(),
+  ),
 });
 const updateSchema = createSchema.partial().omit({ maGiaoVien: true });
 

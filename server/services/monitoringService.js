@@ -1,4 +1,5 @@
 import { getPool, sql } from '../db.js';
+import { logError } from '../utils/logger.js';
 import { getMonitoringThresholds } from './systemSettingsService.js';
 
 export function getAlertStatus(concentration, currentStudents, expectedStudents, thresholds = null) {
@@ -118,10 +119,27 @@ export async function createRealtimeSnapshot() {
   return snapshots;
 }
 
-export async function getLatestRealtime() {
-  const pool = await getPool();
-  const thresholds = await getMonitoringThresholds();
-  const result = await pool.request().query(`
+export async function getLatestRealtime(maGiaoVienFilter = null) {
+  let pool;
+  let thresholds;
+  try {
+    pool = await getPool();
+    thresholds = await getMonitoringThresholds();
+  } catch (e) {
+    logError('getLatestRealtime: pool/thresholds failed', e);
+    return [];
+  }
+
+  const teacherClause = maGiaoVienFilter
+    ? 'AND l.[MãGiáoViên] COLLATE DATABASE_DEFAULT = @maGiaoVien COLLATE DATABASE_DEFAULT'
+    : '';
+
+  try {
+    const request = pool.request();
+    if (maGiaoVienFilter) {
+      request.input('maGiaoVien', sql.NVarChar, maGiaoVienFilter);
+    }
+    const result = await request.query(`
     ;WITH ranked AS (
       SELECT
         c.[MãLớp] AS maLop,
@@ -161,10 +179,12 @@ export async function getLatestRealtime() {
     INNER JOIN dbo.GiaoVien g ON g.[MãGiáoViên] = l.[MãGiáoViên]
     LEFT JOIN ranked r ON r.maLop = l.[MãLớp] AND r.rn = 1
     LEFT JOIN active act ON act.maLop = l.[MãLớp]
+    WHERE 1 = 1
+    ${teacherClause}
     ORDER BY l.[MãLớp]
   `);
 
-  return result.recordset.map((row) => {
+    return result.recordset.map((row) => {
     const sessionOn = !!row.maBuoiHocDangHoatDong;
     const metricForSession =
       sessionOn &&
@@ -191,7 +211,11 @@ export async function getLatestRealtime() {
       isActive,
       alertStatus,
     };
-  });
+    });
+  } catch (e) {
+    logError('getLatestRealtime: query failed', e);
+    return [];
+  }
 }
 
 export async function upsertAlertsFromRealtime(items) {
@@ -210,20 +234,35 @@ export async function upsertAlertsFromRealtime(items) {
   }
 }
 
-export async function getDashboardOverview() {
-  const items = await getLatestRealtime();
-  const active = items.filter((i) => i.isActive);
-  const totalStudents = active.reduce((sum, i) => sum + i.currentStudents, 0);
-  const avgConcentration = active.length
-    ? Math.round(active.reduce((sum, i) => sum + i.concentrationLevel, 0) / active.length)
-    : 0;
-  const alerts = active.filter((i) => i.alertStatus !== 'normal');
-  return {
-    activeClasses: active.length,
-    totalClasses: items.length,
-    totalStudents,
-    avgConcentration,
-    alerts,
-    classes: items,
-  };
+export const EMPTY_DASHBOARD = {
+  activeClasses: 0,
+  totalClasses: 0,
+  totalStudents: 0,
+  avgConcentration: 0,
+  alerts: [],
+  classes: [],
+};
+
+export async function getDashboardOverview(maGiaoVienFilter = null) {
+  try {
+    const raw = await getLatestRealtime(maGiaoVienFilter);
+    const items = Array.isArray(raw) ? raw : [];
+    const active = items.filter((i) => i.isActive);
+    const totalStudents = active.reduce((sum, i) => sum + (Number(i.currentStudents) || 0), 0);
+    const avgConcentration = active.length
+      ? Math.round(active.reduce((sum, i) => sum + (Number(i.concentrationLevel) || 0), 0) / active.length)
+      : 0;
+    const alerts = active.filter((i) => i.alertStatus !== 'normal');
+    return {
+      activeClasses: active.length,
+      totalClasses: items.length,
+      totalStudents,
+      avgConcentration,
+      alerts,
+      classes: items,
+    };
+  } catch (e) {
+    logError('getDashboardOverview failed', e);
+    return { ...EMPTY_DASHBOARD };
+  }
 }

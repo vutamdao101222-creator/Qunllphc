@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { getPool, sql } from '../db.js';
 import { env } from '../config/env.js';
 import { HttpError } from '../utils/httpError.js';
+import { findTeacherCodeByAccount } from './authorizationService.js';
 
 function mapUser(row) {
   return {
@@ -25,6 +26,16 @@ function roleToFlags(role) {
   return { laQuanTri: 0, laGiaoVien: 0, laPhuHuynh: 1, role: 'parent' };
 }
 
+async function attachTeacherCode(user) {
+  if (user.role === 'teacher') {
+    const code = await findTeacherCodeByAccount(user.maTaiKhoan);
+    user.maGiaoVien = code ?? null;
+  } else {
+    user.maGiaoVien = null;
+  }
+  return user;
+}
+
 function signTokens(user) {
   const payload = {
     maTaiKhoan: user.maTaiKhoan,
@@ -34,6 +45,7 @@ function signTokens(user) {
     laGiaoVien: user.laGiaoVien,
     laPhuHuynh: user.laPhuHuynh,
     chiDoc: user.chiDoc,
+    maGiaoVien: user.maGiaoVien ?? null,
   };
   const accessToken = jwt.sign(payload, env.jwt.accessSecret, { expiresIn: env.jwt.accessExpiresIn });
   const refreshToken = jwt.sign({ maTaiKhoan: user.maTaiKhoan, role: user.role }, env.jwt.refreshSecret, {
@@ -85,6 +97,7 @@ export async function registerUser({ tenDangNhap, matKhau, hoTen, email, role })
     `);
 
   const user = mapUser(insertResult.recordset[0]);
+  await attachTeacherCode(user);
   const tokens = signTokens(user);
   return { user, ...tokens };
 }
@@ -132,6 +145,7 @@ export async function loginWithPassword(tenDangNhap, matKhau) {
   if (!valid) throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
 
   const user = mapUser(account);
+  await attachTeacherCode(user);
   const tokens = signTokens(user);
 
   await pool
@@ -170,6 +184,7 @@ export async function refreshAccessToken(refreshToken) {
     const row = r.recordset[0];
     if (!row) throw new HttpError(401, 'Refresh token khong hop le');
     const user = mapUser(row);
+    await attachTeacherCode(user);
     const accessToken = jwt.sign(
       {
         maTaiKhoan: user.maTaiKhoan,
@@ -179,6 +194,7 @@ export async function refreshAccessToken(refreshToken) {
         laGiaoVien: user.laGiaoVien,
         laPhuHuynh: user.laPhuHuynh,
         chiDoc: user.chiDoc,
+        maGiaoVien: user.maGiaoVien ?? null,
       },
       env.jwt.accessSecret,
       { expiresIn: env.jwt.accessExpiresIn },

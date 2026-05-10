@@ -6,7 +6,7 @@ import {
   getConcentrationBg, DAY_NAMES_FULL
 } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
-import { SCHOOL_STUDENTS, SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
+import { SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
 import { fetchClass } from '../lib/api';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -14,18 +14,32 @@ import {
 } from 'recharts';
 import {
   ArrowLeft, Users, Activity, Clock, BookOpen,
-  CalendarDays, TrendingDown, TrendingUp, BarChart2, Send, MessageSquare, ClipboardCheck
+  CalendarDays, TrendingDown, TrendingUp, BarChart2, Send, MessageSquare, ClipboardCheck,
+  Plus, Pencil, Trash2, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+function parseFeedbackCategoryInput(text: string): 'praise' | 'reminder' | 'discipline' {
+  const t = text.trim().toLowerCase();
+  if (!t) return 'reminder';
+  if (/(khen|khen ngợi|ngợi|tốt|xuất sắc|đạt)/.test(t)) return 'praise';
+  if (/(phê|phê bình|kỷ luật|khiển|phạt)/.test(t)) return 'discipline';
+  return 'reminder';
+}
 
 export default function ClassDetailPage() {
   const { user } = useAuth();
   const {
+    students,
+    parentAccounts,
     studentStatuses,
     feedbacks,
     assignments,
     submissions,
     learningProfiles,
+    addStudent,
+    updateStudent,
+    deleteStudent,
     setAttendance,
     createFeedback,
     toggleReplyRequested,
@@ -66,12 +80,21 @@ export default function ClassDetailPage() {
     };
   }, [classId, cls]);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'trends' | 'attendance' | 'feedback' | 'assignments' | 'profiles'>('overview');
-  const classStudents = cls ? SCHOOL_STUDENTS.filter(s => s.classId === cls.id) : [];
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'sessions' | 'trends' | 'attendance' | 'students' | 'feedback' | 'assignments' | 'profiles'
+  >('overview');
+  const classStudents = cls ? students.filter(s => s.classId === cls.id) : [];
   const canSendFeedback = user?.role === 'teacher' || user?.role === 'admin';
   const canEditAttendance = user?.role === 'teacher' || user?.role === 'admin';
-  const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [feedbackCategory, setFeedbackCategory] = useState<'praise' | 'reminder' | 'discipline'>('reminder');
+  const canManageStudents =
+    (user?.role === 'teacher' || user?.role === 'admin') && !user?.chiDoc;
+  const [studentFormMode, setStudentFormMode] = useState<null | 'add' | 'edit'>(null);
+  const [studentForm, setStudentForm] = useState({ id: '', name: '', parentUserId: '' });
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [deleteStudentId, setDeleteStudentId] = useState<string | null>(null);
+  const [feedbackStudentSearch, setFeedbackStudentSearch] = useState('');
+  const [feedbackStudentSuggestOpen, setFeedbackStudentSuggestOpen] = useState(false);
+  const [feedbackCategoryInput, setFeedbackCategoryInput] = useState('');
   const [feedbackTitle, setFeedbackTitle] = useState('');
   const [feedbackContent, setFeedbackContent] = useState('');
   const [feedbackPeriod, setFeedbackPeriod] = useState<'today' | 'week' | 'all'>('week');
@@ -85,6 +108,30 @@ export default function ClassDetailPage() {
       .sort((a, b) => b.date.localeCompare(a.date));
     return filterFeedbacks(items, feedbackPeriod, feedbackType);
   }, [classId, feedbackPeriod, feedbackType, feedbacks, filterFeedbacks]);
+
+  const feedbackStudentMatches = useMemo(() => {
+    const q = feedbackStudentSearch.trim().toLowerCase();
+    if (!q) return classStudents.slice(0, 10);
+    return classStudents
+      .filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+      .slice(0, 12);
+  }, [classStudents, feedbackStudentSearch]);
+
+  const resolveFeedbackStudentId = (): string | null => {
+    const raw = feedbackStudentSearch.trim();
+    if (!raw) return null;
+    const paren = raw.match(/\(([^)]+)\)\s*$/);
+    if (paren) {
+      const id = paren[1].trim();
+      const hit = classStudents.find((s) => s.id === id);
+      if (hit) return hit.id;
+    }
+    const byId = classStudents.find((s) => s.id === raw);
+    if (byId) return byId.id;
+    const nameEq = classStudents.filter((s) => s.name.toLowerCase() === raw.toLowerCase());
+    if (nameEq.length === 1) return nameEq[0].id;
+    return null;
+  };
 
   if (!cls) {
     if (remoteLoading) {
@@ -244,6 +291,7 @@ export default function ClassDetailPage() {
             { key: 'sessions', label: 'Danh sách buổi học' },
             { key: 'trends', label: 'Xu hướng' },
             { key: 'attendance', label: 'Điểm danh học sinh' },
+            { key: 'students', label: 'Quản lý học sinh' },
             { key: 'feedback', label: 'Nhận xét phụ huynh' },
             { key: 'assignments', label: 'Bài tập & deadline' },
             { key: 'profiles', label: 'Learning Profile' },
@@ -479,36 +527,293 @@ export default function ClassDetailPage() {
             </div>
           )}
 
+          {activeTab === 'students' && cls && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-sm text-gray-600">
+                  Thêm, sửa hoặc xóa học sinh trong lớp. Dữ liệu lưu trên trình duyệt (đồng bộ với phụ huynh / điểm danh).
+                </p>
+                {canManageStudents && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingStudentId(null);
+                      setStudentForm({
+                        id: '',
+                        name: '',
+                        parentUserId: parentAccounts[0]?.id ?? 'u4',
+                      });
+                      setStudentFormMode('add');
+                    }}
+                    className="inline-flex items-center gap-1.5 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700"
+                  >
+                    <Plus size={16} />
+                    Thêm học sinh
+                  </button>
+                )}
+              </div>
+              {!canManageStudents && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Chỉ quản trị hoặc giáo viên (không chế độ chỉ đọc) mới chỉnh được danh sách học sinh.
+                </p>
+              )}
+              {classStudents.length === 0 ? (
+                <div className="text-center text-gray-500 py-10 border border-dashed border-gray-200 rounded-xl">
+                  Chưa có học sinh nào trong lớp. {canManageStudents && 'Nhấn «Thêm học sinh» để bắt đầu.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-left text-xs text-gray-500">
+                        <th className="px-4 py-3 font-medium">Mã HS</th>
+                        <th className="px-4 py-3 font-medium">Họ tên</th>
+                        <th className="px-4 py-3 font-medium">Phụ huynh (tài khoản)</th>
+                        <th className="px-4 py-3 font-medium w-32 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {classStudents.map((st) => {
+                        const pa = parentAccounts.find((p) => p.id === st.parentUserId);
+                        return (
+                          <tr key={st.id} className="border-t border-gray-100 hover:bg-gray-50/80">
+                            <td className="px-4 py-3 font-mono text-xs text-gray-700">{st.id}</td>
+                            <td className="px-4 py-3 font-medium text-gray-800">{st.name}</td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {pa ? `${pa.name} (${pa.username})` : st.parentUserId}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {canManageStudents && (
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingStudentId(st.id);
+                                      setStudentForm({
+                                        id: st.id,
+                                        name: st.name,
+                                        parentUserId: st.parentUserId,
+                                      });
+                                      setStudentFormMode('edit');
+                                    }}
+                                    className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
+                                    title="Sửa"
+                                  >
+                                    <Pencil size={16} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteStudentId(st.id)}
+                                    className="p-1.5 rounded-lg text-red-600 hover:bg-red-50"
+                                    title="Xóa"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {studentFormMode && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+                  <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-gray-900">
+                        {studentFormMode === 'add' ? 'Thêm học sinh' : 'Sửa học sinh'}
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setStudentFormMode(null)}
+                        className="p-1 rounded-lg text-gray-500 hover:bg-gray-100"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Mã học sinh</label>
+                        <input
+                          value={studentForm.id}
+                          onChange={(e) => setStudentForm((f) => ({ ...f, id: e.target.value }))}
+                          disabled={studentFormMode === 'edit'}
+                          placeholder="VD: hs-01 (để trống sẽ tự tạo)"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Họ và tên</label>
+                        <input
+                          value={studentForm.name}
+                          onChange={(e) => setStudentForm((f) => ({ ...f, name: e.target.value }))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Tài khoản phụ huynh liên kết</label>
+                        <select
+                          value={studentForm.parentUserId}
+                          onChange={(e) => setStudentForm((f) => ({ ...f, parentUserId: e.target.value }))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                        >
+                          {parentAccounts.length === 0 ? (
+                            <option value="u4">u4 (mặc định demo)</option>
+                          ) : (
+                            parentAccounts.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} — {p.username}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setStudentFormMode(null)}
+                        className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const name = studentForm.name.trim();
+                          if (!name) {
+                            toast.error('Vui lòng nhập họ tên');
+                            return;
+                          }
+                          if (studentFormMode === 'add') {
+                            const id = studentForm.id.trim() || `hs-${Date.now()}`;
+                            try {
+                              await addStudent({
+                                id,
+                                name,
+                                classId: cls.id,
+                                parentUserId: studentForm.parentUserId || parentAccounts[0]?.id || 'u4',
+                              });
+                              toast.success('Đã thêm học sinh');
+                              setStudentFormMode(null);
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : 'Không thêm được');
+                            }
+                          } else if (editingStudentId) {
+                            await updateStudent(editingStudentId, {
+                              name,
+                              parentUserId: studentForm.parentUserId,
+                            });
+                            toast.success('Đã cập nhật học sinh');
+                            setStudentFormMode(null);
+                            setEditingStudentId(null);
+                          }
+                        }}
+                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Lưu
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {deleteStudentId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+                  <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4">
+                    <p className="text-sm text-gray-800">
+                      Xóa học sinh <strong>{classStudents.find((s) => s.id === deleteStudentId)?.name}</strong>? Các điểm
+                      danh, nhận xét và nộp bài của học sinh này cũng sẽ bị xóa khỏi bản local.
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteStudentId(null)}
+                        className="px-4 py-2 text-sm border border-gray-200 rounded-lg"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await deleteStudent(deleteStudentId);
+                          toast.success('Đã xóa học sinh');
+                          setDeleteStudentId(null);
+                        }}
+                        className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'feedback' && (
             <div className="space-y-4">
               {canSendFeedback && (
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                   <h4 className="font-medium text-gray-800 mb-3">Gửi nhận xét đến phụ huynh</h4>
                   <div className="grid md:grid-cols-2 gap-3">
-                    <div>
+                    <div className="relative">
                       <label className="block text-xs text-gray-500 mb-1">Học sinh</label>
-                      <select
-                        value={selectedStudentId}
-                        onChange={e => setSelectedStudentId(e.target.value)}
+                      <input
+                        type="text"
+                        value={feedbackStudentSearch}
+                        onChange={(e) => {
+                          setFeedbackStudentSearch(e.target.value);
+                          setFeedbackStudentSuggestOpen(true);
+                        }}
+                        onFocus={() => setFeedbackStudentSuggestOpen(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => setFeedbackStudentSuggestOpen(false), 200);
+                        }}
+                        placeholder="Nhập tên hoặc mã học sinh để tìm…"
+                        autoComplete="off"
                         className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                      >
-                        <option value="">Chọn học sinh</option>
-                        {classStudents.map(student => (
-                          <option key={student.id} value={student.id}>{student.name}</option>
-                        ))}
-                      </select>
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Gõ để lọc; chọn dòng trong gợi ý hoặc nhập đúng tên / mã (có thể dạng Tên (mã)).
+                      </p>
+                      {feedbackStudentSuggestOpen && feedbackStudentMatches.length > 0 && (
+                        <ul className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-auto rounded-lg border border-gray-200 bg-white py-1 text-sm shadow-lg">
+                          {feedbackStudentMatches.map((s) => (
+                            <li key={s.id}>
+                              <button
+                                type="button"
+                                className="w-full px-3 py-2 text-left hover:bg-gray-50"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setFeedbackStudentSearch(`${s.name} (${s.id})`);
+                                  setFeedbackStudentSuggestOpen(false);
+                                }}
+                              >
+                                <span className="font-medium text-gray-800">{s.name}</span>
+                                <span className="ml-2 text-xs text-gray-400">{s.id}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Loại nhận xét</label>
-                      <select
-                        value={feedbackCategory}
-                        onChange={e => setFeedbackCategory(e.target.value as 'praise' | 'reminder' | 'discipline')}
+                      <input
+                        type="text"
+                        value={feedbackCategoryInput}
+                        onChange={(e) => setFeedbackCategoryInput(e.target.value)}
+                        placeholder="VD: khen ngợi, nhắc nhở, phê bình…"
                         className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                      >
-                        <option value="praise">Khen ngợi</option>
-                        <option value="reminder">Nhắc nhở</option>
-                        <option value="discipline">Phê bình</option>
-                      </select>
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Hệ thống nhận diện từ khóa (khen / nhắc / phê…); mặc định là nhắc nhở nếu không khớp.
+                      </p>
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-xs text-gray-500 mb-1">Tiêu đề</label>
@@ -532,21 +837,35 @@ export default function ClassDetailPage() {
                   </div>
                   <button
                     onClick={async () => {
-                      if (!selectedStudentId || !feedbackTitle.trim() || !feedbackContent.trim() || !classId || !teacher) {
+                      if (!feedbackTitle.trim() || !feedbackContent.trim() || !classId || !teacher) {
                         toast.error('Vui lòng nhập đầy đủ thông tin nhận xét');
                         return;
                       }
+                      const sid = resolveFeedbackStudentId();
+                      if (!sid) {
+                        const raw = feedbackStudentSearch.trim();
+                        const nameDup = classStudents.filter((s) => s.name.toLowerCase() === raw.toLowerCase());
+                        if (nameDup.length > 1) {
+                          toast.error('Nhiều học sinh trùng tên — chọn trong gợi ý hoặc nhập mã chính xác.');
+                        } else {
+                          toast.error('Không tìm thấy học sinh — kiểm tra tên, mã hoặc chọn từ danh sách gợi ý.');
+                        }
+                        return;
+                      }
+                      const category = parseFeedbackCategoryInput(feedbackCategoryInput);
                       await createFeedback({
-                        studentId: selectedStudentId,
+                        studentId: sid,
                         classId,
                         teacherId: teacher.id,
                         date: SCHOOL_TODAY,
-                        category: feedbackCategory,
+                        category,
                         title: feedbackTitle.trim(),
                         content: feedbackContent.trim(),
                       });
                       setFeedbackTitle('');
                       setFeedbackContent('');
+                      setFeedbackStudentSearch('');
+                      setFeedbackCategoryInput('');
                       toast.success('Đã gửi nhận xét đến phụ huynh');
                     }}
                     className="mt-3 inline-flex items-center gap-1.5 bg-blue-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -587,7 +906,7 @@ export default function ClassDetailPage() {
                   </div>
                 ) : (
                   classFeedbacks.map(item => {
-                    const student = SCHOOL_STUDENTS.find(s => s.id === item.studentId);
+                    const student = students.find(s => s.id === item.studentId);
                     return (
                       <div key={item.id} className="border border-gray-200 rounded-lg p-3">
                         <div className="flex items-center justify-between gap-2">

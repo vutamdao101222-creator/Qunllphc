@@ -6,7 +6,7 @@ import {
   Settings, Users, CalendarDays, Bell, LogOut, Menu, X,
   ChevronRight, GraduationCap, Home, ShieldCheck
 } from 'lucide-react';
-import { fetchMyNotifications } from '../lib/api';
+import { fetchClassesPage, fetchMyNotifications } from '../lib/api';
 
 interface NavItem {
   to: string;
@@ -18,6 +18,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', icon: <LayoutDashboard size={18} />, label: 'Tổng quan', roles: ['admin', 'teacher'] },
   { to: '/monitor', icon: <MonitorPlay size={18} />, label: 'Theo dõi thực tế', roles: ['admin', 'teacher'] },
+  /** Giáo viên: `to` được thay bằng lớp phụ trách đầu tiên từ API */
   { to: '/classes/c1', icon: <BookOpen size={18} />, label: 'Lớp học thông minh', roles: ['admin', 'teacher'] },
   { to: '/schedule', icon: <CalendarDays size={18} />, label: 'Lịch học', roles: ['admin', 'teacher', 'parent'] },
   { to: '/reports', icon: <BarChart3 size={18} />, label: 'Báo cáo & Thống kê', roles: ['admin', 'teacher'] },
@@ -28,12 +29,15 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/parent', icon: <Home size={18} />, label: 'Thông tin phụ huynh', roles: ['parent', 'admin'] },
 ];
 
+const DEFAULT_SMART_CLASS_TO = '/classes/c1';
+
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const [notifPreview, setNotifPreview] = useState<any[]>([]);
+  const [teacherSmartClassTo, setTeacherSmartClassTo] = useState(DEFAULT_SMART_CLASS_TO);
 
   useEffect(() => {
     let mounted = true;
@@ -168,7 +172,7 @@ export function Layout() {
             <div className="hidden sm:flex items-center gap-1 text-sm text-gray-500">
               <span className="text-blue-600 font-medium">EduMonitor</span>
               <ChevronRight size={14} />
-              <span>Quản lý lớp học</span>
+              <span>{user?.role === 'teacher' ? 'Phạm vi giáo viên' : 'Quản lý lớp học'}</span>
             </div>
           </div>
 

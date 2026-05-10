@@ -6,7 +6,7 @@ import {
   getAlertLabel, getAlertStyle
 } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
-import { SCHOOL_STUDENTS, SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
+import { SCHOOL_TODAY, useSchoolData } from '../context/SchoolDataContext';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { toast } from 'sonner';
 import {
@@ -17,6 +17,7 @@ import {
 export default function ParentPage() {
   const { user } = useAuth();
   const {
+    students,
     studentStatuses,
     feedbacks,
     submissions,
@@ -80,16 +81,34 @@ export default function ParentPage() {
   const linkedParent = parentAccounts.find(
     (item) => item.id === user?.id || (user?.username && item.username === user.username),
   );
-  const linkedStudentIds = user?.id
+  const fromApiLinks = user?.id
     ? parentStudentLinks.filter((link) => link.parentId === user.id).map((link) => link.studentId)
-    : (linkedParent
-      ? parentStudentLinks.filter((link) => link.parentId === linkedParent.id).map((link) => link.studentId)
-      : []);
+    : [];
+  const fromMockStore = linkedParent
+    ? parentStudentLinks.filter((link) => link.parentId === linkedParent.id).map((link) => link.studentId)
+    : [];
+  let linkedStudentIds = [...new Set([...fromApiLinks, ...fromMockStore])];
 
-  // Prefer dynamic admin-linked data, fallback to static demo relation.
-  const myStudents = (linkedStudentIds.length > 0
-    ? SCHOOL_STUDENTS.filter((student) => linkedStudentIds.includes(student.id))
-    : SCHOOL_STUDENTS.filter((student) => student.parentUserId === user?.id));
+  if (linkedStudentIds.length === 0 && user?.parentStudentIds?.length) {
+    linkedStudentIds = [...user.parentStudentIds];
+  }
+  if (
+    linkedStudentIds.length === 0 &&
+    (user?.role === 'admin' || user?.role === 'teacher')
+  ) {
+    linkedStudentIds = ['st1', 'st2', 'st3'];
+  }
+
+  const myStudents =
+    linkedStudentIds.length > 0
+      ? students.filter((student) => linkedStudentIds.includes(student.id))
+      : students.filter((student) => student.parentUserId === user?.id);
+
+  const displayName =
+    user?.name?.trim() ||
+    user?.username ||
+    user?.email ||
+    (user?.role === 'admin' ? 'Quản trị viên' : user?.role === 'teacher' ? 'Giáo viên' : 'Phụ huynh');
   const myStudentIds = myStudents.map((s) => s.id);
   const myClassIds = [...new Set(myStudents.map((student) => student.classId))];
   const myClasses = CLASSES.filter((c) => myClassIds.includes(c.id));
@@ -127,7 +146,7 @@ export default function ParentPage() {
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-white">Xin chào, {user?.name}!</h1>
+            <h1 className="text-white">Xin chào, {displayName}!</h1>
             <p className="text-blue-100 text-sm mt-1">Theo dõi thông tin lớp học của con bạn</p>
           </div>
           <div className="text-right">

@@ -70,6 +70,26 @@ export async function seedSampleData(pool, seedCount = DEFAULT_SEED_COUNT) {
       INSERT INTO dbo.GiaoVien ([MãGiáoViên], [HọTên], [MônHọc], [SốĐiệnThoại], Email)
       VALUES (N'GV003', N'Le Quoc Cuong', N'Vat ly', N'0901000003', N'gv003@school.local');
 
+    IF NOT EXISTS (SELECT 1 FROM dbo.GiaoVien WHERE [MãGiáoViên] = N'GV004')
+      INSERT INTO dbo.GiaoVien ([MãGiáoViên], [HọTên], [MônHọc], [SốĐiệnThoại], Email)
+      VALUES (N'GV004', N'Pham Thi Mai', N'Hoa hoc', N'0901000004', N'gv004@school.local');
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.GiaoVien WHERE [MãGiáoViên] = N'GV005')
+      INSERT INTO dbo.GiaoVien ([MãGiáoViên], [HọTên], [MônHọc], [SốĐiệnThoại], Email)
+      VALUES (N'GV005', N'Hoang Van Nam', N'Sinh hoc', N'0901000005', N'gv005@school.local');
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.GiaoVien WHERE [MãGiáoViên] = N'GV006')
+      INSERT INTO dbo.GiaoVien ([MãGiáoViên], [HọTên], [MônHọc], [SốĐiệnThoại], Email)
+      VALUES (N'GV006', N'Vo Thi Lan', N'Lich su', N'0901000006', N'gv006@school.local');
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.GiaoVien WHERE [MãGiáoViên] = N'GV007')
+      INSERT INTO dbo.GiaoVien ([MãGiáoViên], [HọTên], [MônHọc], [SốĐiệnThoại], Email)
+      VALUES (N'GV007', N'Dang Quoc Hung', N'Dia ly', N'0901000007', N'gv007@school.local');
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.GiaoVien WHERE [MãGiáoViên] = N'GV008')
+      INSERT INTO dbo.GiaoVien ([MãGiáoViên], [HọTên], [MônHọc], [SốĐiệnThoại], Email)
+      VALUES (N'GV008', N'Bui Thi Ha', N'Tin hoc', N'0901000008', N'gv008@school.local');
+
     IF NOT EXISTS (SELECT 1 FROM dbo.LopHoc WHERE [MãLớp] = N'LH10A1')
       INSERT INTO dbo.LopHoc ([MãLớp], [TênLớp], Khoi, [MônHọc], [MãGiáoViên], [SĩSốDựKiến])
       VALUES (N'LH10A1', N'Lop 10A1', N'10', N'Toan', N'GV001', 35);
@@ -109,6 +129,66 @@ export async function seedSampleData(pool, seedCount = DEFAULT_SEED_COUNT) {
       VALUES
       (
         N'gv.nguyenan', N'teacher123', NULL, N'Nguyen Van An', N'gv001@school.local',
+        0, 1, 0, 1
+      );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'gv.phammai')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'gv.phammai', N'teacher123', NULL, N'Pham Thi Mai', N'gv004@school.local',
+        0, 1, 0, 1
+      );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'gv.hoangnam')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'gv.hoangnam', N'teacher123', NULL, N'Hoang Van Nam', N'gv005@school.local',
+        0, 1, 0, 1
+      );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'gv.volanh')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'gv.volanh', N'teacher123', NULL, N'Vo Thi Lan', N'gv006@school.local',
+        0, 1, 0, 1
+      );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'gv.danghung')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'gv.danghung', N'teacher123', NULL, N'Dang Quoc Hung', N'gv007@school.local',
+        0, 1, 0, 1
+      );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.TaiKhoan WHERE [TênĐăngNhập] = N'gv.buiha')
+      INSERT INTO dbo.TaiKhoan
+      (
+        [TênĐăngNhập], [MậtKhẩu], [MậtKhẩuHash], [HọTên], [Email],
+        [LàQuảnTrị], [LàGiáoViên], [LàPhụHuynh], [HoạtĐộng]
+      )
+      VALUES
+      (
+        N'gv.buiha', N'teacher123', NULL, N'Bui Thi Ha', N'gv008@school.local',
         0, 1, 0, 1
       );
 

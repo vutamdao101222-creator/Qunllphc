@@ -1,5 +1,6 @@
 import { getPool, sql } from '../db.js';
 import { HttpError } from '../utils/httpError.js';
+import { logError } from '../utils/logger.js';
 
 function mapLinkRow(row) {
   return {
@@ -98,41 +99,49 @@ export async function deleteParentStudentLink(linkId) {
 
 export async function listScheduleAdjustments({ classId } = {}) {
   const pool = await getPool();
-  const request = pool.request();
-  const filters = [];
-  if (classId) {
-    filters.push('[MaLop] = @classId');
-    request.input('classId', sql.NVarChar, classId);
-  }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-  const result = await request.query(`
-    SELECT
-      [MaDieuChinh] AS id,
-      [MaLop] AS classId,
-      [SchedulesJson] AS schedulesJson,
-      [LyDo] AS reason,
-      [CapNhatBoi] AS updatedBy,
-      [CapNhatLuc] AS updatedAt
-    FROM dbo.DieuChinhLichHocLop
-    ${where}
-    ORDER BY [CapNhatLuc] DESC
-  `);
-  return result.recordset.map((row) => {
-    let schedules = [];
-    try {
-      schedules = JSON.parse(row.schedulesJson || '[]');
-    } catch {
-      schedules = [];
+  try {
+    const oid = await pool.request().query(`SELECT OBJECT_ID(N'dbo.DieuChinhLichHocLop', N'U') AS oid`);
+    if (!oid.recordset[0]?.oid) return [];
+
+    const request = pool.request();
+    const filters = [];
+    if (classId) {
+      filters.push('[MaLop] = @classId');
+      request.input('classId', sql.NVarChar, classId);
     }
-    return mapAdjustmentRow({
-      id: row.id,
-      classId: row.classId,
-      schedules,
-      reason: row.reason,
-      updatedBy: row.updatedBy,
-      updatedAt: row.updatedAt,
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    const result = await request.query(`
+      SELECT
+        [MaDieuChinh] AS id,
+        [MaLop] AS classId,
+        [SchedulesJson] AS schedulesJson,
+        [LyDo] AS reason,
+        [CapNhatBoi] AS updatedBy,
+        [CapNhatLuc] AS updatedAt
+      FROM dbo.DieuChinhLichHocLop
+      ${where}
+      ORDER BY [CapNhatLuc] DESC
+    `);
+    return result.recordset.map((row) => {
+      let schedules = [];
+      try {
+        schedules = JSON.parse(row.schedulesJson || '[]');
+      } catch {
+        schedules = [];
+      }
+      return mapAdjustmentRow({
+        id: row.id,
+        classId: row.classId,
+        schedules,
+        reason: row.reason,
+        updatedBy: row.updatedBy,
+        updatedAt: row.updatedAt,
+      });
     });
-  });
+  } catch (e) {
+    logError('listScheduleAdjustments failed', e);
+    return [];
+  }
 }
 
 export async function upsertScheduleAdjustment({ classId, schedules, reason, updatedBy }) {

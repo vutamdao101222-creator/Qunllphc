@@ -10,6 +10,7 @@ export interface AppUser {
   email?: string;
   username?: string;
   chiDoc?: boolean;
+  maGiaoVien?: string | null;
   parentClassIds?: string[];
   parentStudentIds?: string[];
 }
@@ -26,17 +27,24 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+/** Học sinh / lớp mẫu để trang Phụ huynh không trống khi admin/teacher xem hoặc chưa có liên kết DB. */
+const DEMO_PARENT_STUDENT_IDS = ['st1', 'st2', 'st3'];
+const DEMO_PARENT_CLASS_IDS = ['c1', 'c2', 'c4'];
+
 function mapApiUser(apiUser: ApiUser): AppUser {
+  const role = apiUser.role;
   return {
     id: apiUser.maTaiKhoan,
-    name: apiUser.hoTen,
-    role: apiUser.role,
+    name: apiUser.hoTen?.trim() || apiUser.tenDangNhap || '',
+    role,
     email: apiUser.email,
     username: apiUser.tenDangNhap,
     chiDoc: Boolean(apiUser.chiDoc),
-    // demo defaults for parent page if backend has no relation table yet
-    parentClassIds: apiUser.role === 'parent' ? ['c1', 'c4'] : undefined,
-    parentStudentIds: apiUser.role === 'parent' ? ['st1', 'st2'] : undefined,
+    maGiaoVien: apiUser.maGiaoVien ?? null,
+    parentClassIds:
+      role === 'parent' ? ['c1', 'c4'] : role === 'admin' ? DEMO_PARENT_CLASS_IDS : undefined,
+    parentStudentIds:
+      role === 'parent' ? ['st1', 'st2'] : role === 'admin' ? DEMO_PARENT_STUDENT_IDS : undefined,
   };
 }
 

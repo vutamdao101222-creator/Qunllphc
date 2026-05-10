@@ -1,4 +1,4 @@
-import { getPool } from '../db.js';
+import { getPool, sql } from '../db.js';
 import { getDashboardOverview } from './monitoringService.js';
 
 function toCsv(rows) {
@@ -18,26 +18,46 @@ function toCsv(rows) {
   return lines.join('\n');
 }
 
-export async function getReportSummary() {
-  const overview = await getDashboardOverview();
+export async function getReportSummary(options = {}) {
+  const { maGiaoVien } = options;
+  const overview = await getDashboardOverview(maGiaoVien || null);
   const pool = await getPool();
-  const alertsResult = await pool.request().query(`
+
+  const alertsReq = pool.request();
+  if (maGiaoVien) {
+    alertsReq.input('maGiaoVien', sql.NVarChar, maGiaoVien);
+  }
+  const alertsJoin = maGiaoVien
+    ? `INNER JOIN dbo.LopHoc l ON l.[MãLớp] = c.[MãLớp]
+         AND l.[MãGiáoViên] COLLATE DATABASE_DEFAULT = @maGiaoVien COLLATE DATABASE_DEFAULT`
+    : '';
+  const alertsResult = await alertsReq.query(`
     SELECT TOP 50
-      [MãLớp] AS maLop,
-      [MứcĐộ] AS mucDo,
-      [NộiDung] AS noiDung,
-      [ThờiĐiểm] AS thoiDiem
-    FROM dbo.CanhBao
-    ORDER BY [ThờiĐiểm] DESC
+      c.[MãLớp] AS maLop,
+      c.[MứcĐộ] AS mucDo,
+      c.[NộiDung] AS noiDung,
+      c.[ThờiĐiểm] AS thoiDiem
+    FROM dbo.CanhBao c
+    ${alertsJoin}
+    ORDER BY c.[ThờiĐiểm] DESC
   `);
 
-  const timelineResult = await pool.request().query(`
+  const timelineReq = pool.request();
+  if (maGiaoVien) {
+    timelineReq.input('maGiaoVien', sql.NVarChar, maGiaoVien);
+  }
+  const timelineJoin = maGiaoVien
+    ? `INNER JOIN dbo.LopHoc l ON l.[MãLớp] = c.[MãLớp]
+         AND l.[MãGiáoViên] COLLATE DATABASE_DEFAULT = @maGiaoVien COLLATE DATABASE_DEFAULT`
+    : '';
+  const timelineResult = await timelineReq.query(`
     SELECT
-      CONVERT(VARCHAR(10), [ThờiĐiểm], 120) AS ngay,
-      AVG(CAST([MứcTậpTrung] AS FLOAT)) AS avgConcentration,
-      AVG(CAST([SĩSốHiệnTại] AS FLOAT)) AS avgStudents
-    FROM dbo.ChiSoTapTrung
-    GROUP BY CONVERT(VARCHAR(10), [ThờiĐiểm], 120)
+      CONVERT(VARCHAR(10), c.[ThờiĐiểm], 120) AS ngay,
+      AVG(CAST(c.[MứcTậpTrung] AS FLOAT)) AS avgConcentration,
+      AVG(CAST(c.[SĩSốHiệnTại] AS FLOAT)) AS avgStudents
+    FROM dbo.ChiSoTapTrung c
+    ${timelineJoin}
+    GROUP BY CONVERT(VARCHAR(10), c.[ThờiĐiểm], 120)
     ORDER BY ngay DESC
   `);
 
@@ -48,8 +68,8 @@ export async function getReportSummary() {
   };
 }
 
-export async function getCsvReport() {
-  const summary = await getReportSummary();
+export async function getCsvReport(options = {}) {
+  const summary = await getReportSummary(options);
   const rows = summary.classes.map((item) => ({
     maLop: item.maLop,
     tenLop: item.tenLop,

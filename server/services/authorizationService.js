@@ -17,12 +17,19 @@ export async function findTeacherCodeByAccount(maTaiKhoan) {
   return result.recordset[0]?.maGiaoVien || null;
 }
 
+/** Ưu tiên mã giáo viên trong JWT (sau đăng nhập), fallback tra DB. */
+export async function resolveTeacherMaGiaoVien(req) {
+  if (!req.auth || req.auth.role !== 'teacher') return null;
+  if (req.auth.maGiaoVien) return req.auth.maGiaoVien;
+  return findTeacherCodeByAccount(req.auth.maTaiKhoan);
+}
+
 export async function assertTeacherOwnsClass(req, maLop) {
   if (!req.auth) throw new HttpError(401, 'Chua dang nhap');
   if (req.auth.role === 'admin') return;
   if (req.auth.role !== 'teacher') throw new HttpError(403, 'Ban khong co quyen voi lop nay');
 
-  const teacherCode = await findTeacherCodeByAccount(req.auth.maTaiKhoan);
+  const teacherCode = await resolveTeacherMaGiaoVien(req);
   if (!teacherCode) throw new HttpError(403, 'Tai khoan giao vien chua duoc gan ma giao vien');
 
   const pool = await getPool();

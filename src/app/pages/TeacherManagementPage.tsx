@@ -39,6 +39,15 @@ export default function TeacherManagementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sort, order]);
 
+  useEffect(() => {
+    if (!showForm) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowForm(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showForm]);
+
   const openCreate = () => {
     setEditing(null);
     setForm({ maGiaoVien: '', hoTen: '', monHoc: '', soDienThoai: '', email: '' });
@@ -210,66 +219,123 @@ export default function TeacherManagementPage() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowForm(false)} />
-          <div className="relative w-[92vw] max-w-xl bg-white rounded-2xl border border-gray-200 shadow-xl p-5">
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="teacher-form-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40 cursor-default"
+            aria-label="Đóng"
+            onClick={() => setShowForm(false)}
+          />
+          <div
+            className="relative w-full max-w-xl bg-white rounded-2xl border border-gray-200 shadow-xl p-5 md:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="font-semibold text-gray-900">{editing ? 'Cập nhật giáo viên' : 'Thêm giáo viên'}</h2>
-                <p className="text-xs text-gray-500 mt-0.5">CRUD qua API + lưu DB</p>
+                <h2 id="teacher-form-title" className="text-lg font-semibold text-gray-900">
+                  {editing ? 'Cập nhật giáo viên' : 'Thêm giáo viên mới'}
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {editing
+                    ? 'Chỉnh sửa thông tin; mã giáo viên không đổi.'
+                    : 'Nhập mã duy nhất (VD: 04, GV04). Dữ liệu lưu vào SQL Server qua API.'}
+                </p>
               </div>
-              <button className="text-gray-500 hover:text-gray-700" onClick={() => setShowForm(false)}>
+              <button
+                type="button"
+                className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                onClick={() => setShowForm(false)}
+              >
                 ✕
               </button>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-3 mt-4">
-              <input
-                value={form.maGiaoVien}
-                onChange={(e) => setForm((p) => ({ ...p, maGiaoVien: e.target.value }))}
-                placeholder="Mã GV (VD: GV004)"
-                disabled={Boolean(editing)}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
-              />
-              <input
-                value={form.hoTen}
-                onChange={(e) => setForm((p) => ({ ...p, hoTen: e.target.value }))}
-                placeholder="Họ tên"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                value={form.monHoc}
-                onChange={(e) => setForm((p) => ({ ...p, monHoc: e.target.value }))}
-                placeholder="Môn học"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                value={String(form.soDienThoai ?? '')}
-                onChange={(e) => setForm((p) => ({ ...p, soDienThoai: e.target.value }))}
-                placeholder="Số điện thoại (tuỳ chọn)"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                value={String(form.email ?? '')}
-                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-                placeholder="Email (tuỳ chọn)"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm md:col-span-2"
-              />
+            <div className="grid md:grid-cols-2 gap-4 mt-5">
+              <div className="space-y-1">
+                <label htmlFor="gv-ma" className="text-xs font-medium text-gray-600">
+                  Mã giáo viên <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="gv-ma"
+                  value={form.maGiaoVien}
+                  onChange={(e) => setForm((p) => ({ ...p, maGiaoVien: e.target.value }))}
+                  placeholder="VD: 04 hoặc GV04"
+                  disabled={Boolean(editing)}
+                  autoFocus={!editing}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="gv-name" className="text-xs font-medium text-gray-600">
+                  Họ và tên <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="gv-name"
+                  value={form.hoTen}
+                  onChange={(e) => setForm((p) => ({ ...p, hoTen: e.target.value }))}
+                  placeholder="Nguyễn Văn A"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label htmlFor="gv-subject" className="text-xs font-medium text-gray-600">
+                  Môn dạy <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="gv-subject"
+                  value={form.monHoc}
+                  onChange={(e) => setForm((p) => ({ ...p, monHoc: e.target.value }))}
+                  placeholder="Toán học, Ngữ văn…"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="gv-phone" className="text-xs font-medium text-gray-600">
+                  Điện thoại
+                </label>
+                <input
+                  id="gv-phone"
+                  value={String(form.soDienThoai ?? '')}
+                  onChange={(e) => setForm((p) => ({ ...p, soDienThoai: e.target.value }))}
+                  placeholder="090…"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="gv-email" className="text-xs font-medium text-gray-600">
+                  Email
+                </label>
+                <input
+                  id="gv-email"
+                  type="email"
+                  value={String(form.email ?? '')}
+                  onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                  placeholder="gv@school.local"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 mt-4">
+            <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
               <button
+                type="button"
                 onClick={() => setShowForm(false)}
                 className="text-sm px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
               >
                 Hủy
               </button>
               <button
+                type="button"
                 onClick={submit}
-                className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
                 disabled={loading}
               >
-                Lưu
+                {loading ? 'Đang lưu…' : editing ? 'Cập nhật' : 'Thêm giáo viên'}
               </button>
             </div>
           </div>

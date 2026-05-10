@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useAuth } from './AuthContext';
 import { createParentStudentLink, deleteParentStudentLink, fetchMyParentLinks, listParentStudentLinks, listScheduleAdjustments, resetScheduleAdjustment, upsertScheduleAdjustment } from '../lib/api';
 import {
   ASSIGNMENTS,
@@ -12,6 +13,7 @@ import {
   STUDENT_DAILY_STATUS,
   StudentDailyStatus,
   STUDENTS,
+  StudentProfile,
   TEACHER_FEEDBACKS,
   TeacherFeedback,
   USERS,
@@ -42,6 +44,7 @@ interface AttendanceUpdateInput {
 }
 
 interface SchoolDataContextType {
+  students: StudentProfile[];
   studentStatuses: StudentDailyStatus[];
   feedbacks: TeacherFeedback[];
   assignments: Assignment[];
@@ -50,6 +53,9 @@ interface SchoolDataContextType {
   parentAccounts: ParentAccount[];
   parentStudentLinks: ParentStudentLink[];
   scheduleAdjustments: ScheduleAdjustment[];
+  addStudent: (input: StudentProfile) => Promise<void>;
+  updateStudent: (studentId: string, patch: Partial<Omit<StudentProfile, 'id'>>) => Promise<void>;
+  deleteStudent: (studentId: string) => Promise<void>;
   setAttendance: (input: AttendanceUpdateInput) => Promise<void>;
   createFeedback: (input: CreateFeedbackInput) => Promise<void>;
   markFeedbackRead: (feedbackId: string) => Promise<void>;
@@ -74,6 +80,7 @@ const CHANNEL_NAME = 'edu_school_data_channel';
 const TODAY = MOCK_SCHOOL_TODAY;
 
 interface SchoolStore {
+  students: StudentProfile[];
   studentStatuses: StudentDailyStatus[];
   feedbacks: TeacherFeedback[];
   assignments: Assignment[];
@@ -148,6 +155,7 @@ const defaultParentStudentLinks: ParentStudentLink[] = STUDENTS.map((student, id
 }));
 
 const defaultStore: SchoolStore = {
+  students: STUDENTS.map((s) => ({ ...s })),
   studentStatuses: STUDENT_DAILY_STATUS,
   feedbacks: TEACHER_FEEDBACKS,
   assignments: ASSIGNMENTS,
@@ -166,6 +174,7 @@ function readStore(): SchoolStore {
   try {
     const parsed = JSON.parse(raw) as SchoolStore;
     return {
+      students: Array.isArray(parsed.students) ? parsed.students : defaultStore.students,
       studentStatuses: parsed.studentStatuses ?? defaultStore.studentStatuses,
       feedbacks: parsed.feedbacks ?? defaultStore.feedbacks,
       assignments: parsed.assignments ?? defaultStore.assignments,
@@ -191,6 +200,7 @@ function sameWeek(date: string): boolean {
 }
 
 export function SchoolDataProvider({ children }: { children: React.ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
   const [store, setStore] = useState<SchoolStore>(() => readStore());
 
   useEffect(() => {
@@ -198,6 +208,8 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
   }, [store]);
 
   useEffect(() => {
+    if (authLoading || !user) return;
+
     let mounted = true;
     const hydrateRemote = async () => {
       try {
@@ -218,7 +230,7 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [authLoading, user?.id]);
 
   useEffect(() => {
     const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL_NAME) : null;
@@ -410,6 +422,37 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     }));
   };
 
+  const addStudent: SchoolDataContextType['addStudent'] = async (input) => {
+    await updateStore((prev) => {
+      if (prev.students.some((s) => s.id === input.id)) {
+        throw new Error('Mã học sinh đã tồn tại');
+      }
+      return { ...prev, students: [input, ...prev.students] };
+    });
+  };
+
+  const updateStudent: SchoolDataContextType['updateStudent'] = async (studentId, patch) => {
+    await updateStore((prev) => ({
+      ...prev,
+      students: prev.students.map((s) => (s.id === studentId ? { ...s, ...patch } : s)),
+    }));
+  };
+
+  const deleteStudent: SchoolDataContextType['deleteStudent'] = async (studentId) => {
+    await updateStore((prev) => {
+      const { [studentId]: _removed, ...restNotes } = prev.learningProfileNotes;
+      return {
+        ...prev,
+        students: prev.students.filter((s) => s.id !== studentId),
+        studentStatuses: prev.studentStatuses.filter((s) => s.studentId !== studentId),
+        feedbacks: prev.feedbacks.filter((f) => f.studentId !== studentId),
+        submissions: prev.submissions.filter((s) => s.studentId !== studentId),
+        parentStudentLinks: prev.parentStudentLinks.filter((l) => l.studentId !== studentId),
+        learningProfileNotes: restNotes,
+      };
+    });
+  };
+
   const updateClassSchedules: SchoolDataContextType['updateClassSchedules'] = async (input) => {
     const now = new Date().toISOString();
     const normalized = input.schedules
@@ -504,6 +547,7 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
   };
 
   const value = useMemo<SchoolDataContextType>(() => ({
+    students: store.students,
     studentStatuses: store.studentStatuses,
     feedbacks: store.feedbacks,
     assignments: store.assignments,
@@ -512,6 +556,9 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     parentAccounts: store.parentAccounts,
     parentStudentLinks: store.parentStudentLinks,
     scheduleAdjustments: store.scheduleAdjustments,
+    addStudent,
+    updateStudent,
+    deleteStudent,
     setAttendance,
     createFeedback,
     markFeedbackRead,
@@ -526,7 +573,7 @@ export function SchoolDataProvider({ children }: { children: React.ReactNode }) 
     getParentsOfStudent,
     filterFeedbacks,
     setLearningProfileNote,
-  }), [learningProfilesMerged, store.studentStatuses, store.feedbacks, store.assignments, store.submissions, store.parentAccounts, store.parentStudentLinks, store.scheduleAdjustments]);
+  }), [learningProfilesMerged, store.students, store.studentStatuses, store.feedbacks, store.assignments, store.submissions, store.parentAccounts, store.parentStudentLinks, store.scheduleAdjustments]);
 
   return (
     <SchoolDataContext.Provider value={value}>
@@ -542,4 +589,3 @@ export function useSchoolData() {
 }
 
 export const SCHOOL_TODAY = TODAY;
-export const SCHOOL_STUDENTS = STUDENTS;

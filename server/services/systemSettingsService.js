@@ -8,20 +8,29 @@ const KEYS = {
   cameraMode: 'camera.cheDo',
 };
 
+const DEFAULT_THRESHOLDS = {
+  tyLeThamDuToiThieu: 0.7,
+  nguongTapTrungToiThieu: 60,
+};
+
 export async function getMonitoringThresholds() {
-  const pool = await getPool();
-  const result = await pool.request().query(`
-    SELECT [MaKhoa] AS maKhoa, [GiaTri] AS giaTri
-    FROM dbo.CauHinhHeThong
-    WHERE [MaKhoa] IN (N'realtime.tyLeThamDuToiThieu', N'realtime.nguongTapTrungToiThieu')
-  `);
-  const map = Object.fromEntries((result.recordset || []).map((r) => [r.maKhoa, r.giaTri]));
-  const tyLe = parseFloat(map[KEYS.attendanceRatio] ?? '0.7');
-  const tapTrung = parseInt(map[KEYS.concentrationMin] ?? '60', 10);
-  return {
-    tyLeThamDuToiThieu: Number.isFinite(tyLe) ? Math.min(1, Math.max(0, tyLe)) : 0.7,
-    nguongTapTrungToiThieu: Number.isFinite(tapTrung) ? Math.min(100, Math.max(0, tapTrung)) : 60,
-  };
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT [MaKhoa] AS maKhoa, [GiaTri] AS giaTri
+      FROM dbo.CauHinhHeThong
+      WHERE [MaKhoa] IN (N'realtime.tyLeThamDuToiThieu', N'realtime.nguongTapTrungToiThieu')
+    `);
+    const map = Object.fromEntries((result.recordset || []).map((r) => [r.maKhoa, r.giaTri]));
+    const tyLe = parseFloat(map[KEYS.attendanceRatio] ?? '0.7');
+    const tapTrung = parseInt(map[KEYS.concentrationMin] ?? '60', 10);
+    return {
+      tyLeThamDuToiThieu: Number.isFinite(tyLe) ? Math.min(1, Math.max(0, tyLe)) : 0.7,
+      nguongTapTrungToiThieu: Number.isFinite(tapTrung) ? Math.min(100, Math.max(0, tapTrung)) : 60,
+    };
+  } catch {
+    return { ...DEFAULT_THRESHOLDS };
+  }
 }
 
 export async function getPublicSystemInfo() {

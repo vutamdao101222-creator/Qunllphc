@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useParams, useNavigate, useLocation } from 'react-router';
 import { fetchRealtimeClasses, fetchClass, getMonitorStreamUrl } from '../lib/api';
 import {
@@ -292,8 +292,31 @@ function MonitorDetail({ classId }: { classId: string }) {
   const [students, setStudents] = useState(live?.currentStudents ?? 0);
   const [concHistory, setConcHistory] = useState(live?.last30MinConcentration ?? []);
   const [studHistory, setStudHistory] = useState(live?.last30MinStudents ?? []);
+  const [remoteConcHistory, setRemoteConcHistory] = useState<{ time: string; value: number }[]>([]);
+  const [remoteStudHistory, setRemoteStudHistory] = useState<{ time: string; value: number }[]>([]);
+  const remoteRealtimeRef = useRef<any | null>(null);
+  remoteRealtimeRef.current = remoteRealtime;
 
   const isRemoteDetail = !cls || !live;
+
+  useEffect(() => {
+    if (!isRemoteDetail) return;
+    setRemoteConcHistory([]);
+    setRemoteStudHistory([]);
+    const sample = () => {
+      const r = remoteRealtimeRef.current;
+      if (!r) return;
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const c = Number(r.concentrationLevel) || 0;
+      const s = Number(r.currentStudents) || 0;
+      setRemoteConcHistory((h) => [...h.slice(-14), { time: timeStr, value: c }]);
+      setRemoteStudHistory((h) => [...h.slice(-14), { time: timeStr, value: s }]);
+    };
+    sample();
+    const iv = setInterval(sample, 5000);
+    return () => clearInterval(iv);
+  }, [isRemoteDetail, classId]);
 
   useEffect(() => {
     if (!isRemoteDetail) return;
@@ -304,7 +327,7 @@ function MonitorDetail({ classId }: { classId: string }) {
       const list = extractRealtimeList(raw);
       const found = findRealtimeRow(list, classId);
       const meta = remoteClassRef.current;
-      if (!meta) return;
+      // Không chặn khi meta chưa tới: SSE thường fire trước khi fetchClass xong; vẫn enrich từ snapshot + sĩ số mặc định.
       setRemoteRealtime(enrichRealtimeRow(found, meta, classId));
     };
 
@@ -322,7 +345,7 @@ function MonitorDetail({ classId }: { classId: string }) {
         remoteClassRef.current = c;
         setRemoteClass(c);
         if (!c) {
-          setRemoteRealtime(null);
+          // Giữ snapshot realtime từ SSE/poll nếu đã tới trước; không xóa để tránh màn hình trống tới khi F5.
           return;
         }
         const list = extractRealtimeList(rt);
@@ -417,11 +440,11 @@ function MonitorDetail({ classId }: { classId: string }) {
   }, [cls?.id, live?.classId]);
 
   if (!cls || !live) {
-    if (remoteLoading) {
+    if (remoteLoading && !remoteRealtime) {
       return <div className="p-6 text-gray-500 text-center">Đang tải dữ liệu realtime...</div>;
     }
-    if (remoteClass) {
-      const expected = remoteClass.siSoDuKien ?? 0;
+    if (remoteClass || remoteRealtime) {
+      const expected = remoteClass?.siSoDuKien ?? 0;
       const conc = Number(remoteRealtime?.concentrationLevel ?? 0);
       const present = Number(remoteRealtime?.currentStudents ?? 0);
       const fromApi = remoteRealtime && !remoteRealtime.__simulated;
@@ -431,6 +454,8 @@ function MonitorDetail({ classId }: { classId: string }) {
         : fromApi
           ? 'Dữ liệu từ API (polling 15 giây). Mở server và simulation job để có SSE.'
           : 'Dữ liệu mô phỏng realtime — khi có snapshot trong CSDL sẽ chuyển sang số liệu thật.';
+      const title = remoteClass?.tenLop ?? remoteClass?.maLop ?? remoteRealtime?.maLop ?? classId;
+      const gvLine = remoteClass?.tenGiaoVien ?? remoteClass?.maGiaoVien ?? remoteRealtime?.tenGiaoVien ?? '—';
       return (
         <div className="p-4 lg:p-6 space-y-6">
           <div className="flex items-center gap-4">
@@ -439,14 +464,14 @@ function MonitorDetail({ classId }: { classId: string }) {
             </button>
             <div className="flex-1">
               <div className="flex items-center gap-3">
-                <h1 className="text-gray-900">{remoteClass.tenLop ?? remoteClass.maLop}</h1>
+                <h1 className="text-gray-900">{title}</h1>
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${getAlertStyle(alertStatus)}`}>
                   {alertStatus !== 'normal' && <AlertTriangle size={10} className="inline mr-1" />}
                   {getAlertLabel(alertStatus)}
                 </span>
               </div>
               <p className="text-sm text-gray-500 mt-0.5">
-                GV: {remoteClass.tenGiaoVien ?? remoteClass.maGiaoVien} · Sĩ số dự kiến: {expected || '—'}
+                GV: {gvLine} · Sĩ số dự kiến: {expected || '—'}
               </p>
             </div>
           </div>
@@ -491,6 +516,104 @@ function MonitorDetail({ classId }: { classId: string }) {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-800">Camera trực tiếp</h3>
+                <div className="flex items-center gap-1.5 text-xs text-green-600">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  Trực tiếp
+                </div>
+              </div>
+              <LiveVideoFeed className={String(title)} />
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <ConcentrationGauge value={conc} />
+                  <p className="text-xs text-gray-500 mt-1">Tập trung hiện tại</p>
+                </div>
+                <div className="flex flex-col justify-center gap-2">
+                  <div className="flex items-center justify-between bg-blue-50 rounded-lg p-2">
+                    <span className="text-xs text-gray-600">Sĩ số</span>
+                    <span className="font-bold text-blue-700">{present}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-green-50 rounded-lg p-2">
+                    <span className="text-xs text-gray-600">Dự kiến</span>
+                    <span className="font-bold text-green-700">{expected || '—'}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-amber-50 rounded-lg p-2">
+                    <span className="text-xs text-gray-600">Vắng</span>
+                    <span className="font-bold text-amber-700">
+                      {expected ? Math.max(0, Number(expected) - present) : '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                <h3 className="font-semibold text-gray-800 mb-3">Mức tập trung theo thời gian</h3>
+                <ResponsiveContainer width="100%" height={130}>
+                  <AreaChart data={remoteConcHistory}>
+                    <defs>
+                      <linearGradient id="remoteConcGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval={4} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} unit="%" />
+                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: number) => [`${v}%`, 'Tập trung']} />
+                    <Area type="monotone" dataKey="value" stroke="#3b82f6" fill="url(#remoteConcGrad)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                <h3 className="font-semibold text-gray-800 mb-3">Số học sinh theo thời gian</h3>
+                <ResponsiveContainer width="100%" height={130}>
+                  <LineChart data={remoteStudHistory}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval={4} />
+                    <YAxis
+                      domain={[0, (Number(expected) || 40) + 5]}
+                      tick={{ fontSize: 10, fill: '#9ca3af' }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: number) => [v, 'Học sinh']} />
+                    <Line type="monotone" dataKey="value" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`rounded-xl p-4 border ${
+              alertStatus === 'normal'
+                ? 'bg-green-50 border-green-200'
+                : alertStatus === 'low_concentration'
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-red-50 border-red-200'
+            }`}
+          >
+            <p
+              className={`text-sm ${
+                alertStatus === 'normal'
+                  ? 'text-green-800'
+                  : alertStatus === 'low_concentration'
+                    ? 'text-amber-800'
+                    : 'text-red-800'
+              }`}
+            >
+              <strong>Tóm tắt:</strong> {title} hiện có {present} học sinh trong phòng, mức tập trung {conc}%,
+              trạng thái {getAlertLabel(alertStatus).toLowerCase()}.
+              {alertStatus === 'low_concentration' && ' Cần theo dõi thêm và có thể điều chỉnh phương pháp giảng dạy.'}
+              {alertStatus === 'low_attendance' && ' Sĩ số thấp hơn bình thường, cần kiểm tra nguyên nhân.'}
+            </p>
           </div>
         </div>
       );
@@ -637,12 +760,19 @@ export default function MonitorPage() {
   const [filter, setFilter] = useState<'all' | 'alert'>('all');
   const [listLoading, setListLoading] = useState(() => !classId);
 
+  // Tránh một frame "đã tải xong" khi vừa từ /monitor/:id quay lại /monitor (listLoading còn false từ nhánh detail).
+  useLayoutEffect(() => {
+    if (!classId) {
+      setListLoading(true);
+    }
+  }, [classId]);
+
   useEffect(() => {
     if (classId) {
-      setListLoading(false);
       return;
     }
 
+    setListLoading(true);
     let mounted = true;
     const load = async () => {
       try {
@@ -653,7 +783,6 @@ export default function MonitorPage() {
       }
     };
 
-    setListLoading(true);
     load().finally(() => {
       if (mounted) setListLoading(false);
     });

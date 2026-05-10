@@ -7,6 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { createClass, deleteClass, getClass, listClasses, updateClass } from '../services/classService.js';
 import { denyIfReadOnly } from '../middleware/readOnly.js';
 import { auditFromReq } from '../utils/auditFromReq.js';
+import { assertTeacherOwnsClass, resolveTeacherMaGiaoVien } from '../services/authorizationService.js';
 
 const router = Router();
 
@@ -29,7 +30,15 @@ router.get(
   requireAuth,
   validateQuery(listQuery),
   asyncHandler(async (req, res) => {
-    const { page, pageSize, q, sort, order, maGiaoVien } = req.validatedQuery;
+    let { page, pageSize, q, sort, order, maGiaoVien } = req.validatedQuery;
+    if (req.auth.role === 'teacher') {
+      const code = await resolveTeacherMaGiaoVien(req);
+      if (!code) {
+        res.json(buildPageResult([], 0, page, pageSize));
+        return;
+      }
+      maGiaoVien = code;
+    }
     const { items, total } = await listClasses({ page, pageSize, q, sort, order, maGiaoVien });
     res.json(buildPageResult(items, total, page, pageSize));
   }),
@@ -40,6 +49,9 @@ router.get(
   requireAuth,
   validateParams(codeParam),
   asyncHandler(async (req, res) => {
+    if (req.auth.role === 'teacher') {
+      await assertTeacherOwnsClass(req, req.params.maLop);
+    }
     const data = await getClass(req.params.maLop);
     res.json(data);
   }),
