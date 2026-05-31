@@ -29,6 +29,7 @@ router.get(
       inferenceBaseUrl: rf.inferenceBaseUrl,
       serverlessBaseUrl: rf.serverlessBaseUrl,
       hostedFallback: Boolean(rf.hostedFallback),
+      mockFocus: Boolean(rf.mockFocus),
       workspace: rf.workspace,
       workflowId: rf.workflowId,
       imageInputName: rf.imageInputName,
@@ -54,16 +55,13 @@ router.post(
       await assertTeacherOwnsClass(req, maLop);
     }
 
-    if (source === 'rtsp') {
-      throw new HttpError(
-        400,
-        'Luồng RTSP không gửi trực tiếp từ trình duyệt được. Dùng URL HTTP (MP4/HLS proxy) trên web, hoặc Inference SDK Python với RTSPSource.',
-      );
-    }
-
+    // Trước đây chặn source='rtsp' vì web không tự chụp khung được. Giờ đã có cầu nối
+    // MJPEG (xem rtspRoutes / rtspProxyService): FE chụp khung từ <img> MJPEG rồi gửi
+    // như stream_http; còn ai POST trực tiếp source='rtsp' kèm imageBase64 (Inference
+    // SDK Python với RTSPSource) cũng được phép — chỉ cần có ảnh hợp lệ.
     const raw = imageBase64;
     if (!raw || !raw.trim()) {
-      throw new HttpError(400, 'Thiếu ảnh (imageBase64). Chọn webcam hoặc tải ảnh.');
+      throw new HttpError(400, 'Thiếu ảnh (imageBase64). Chọn webcam, tải ảnh, hoặc bật cầu nối MJPEG cho RTSP.');
     }
 
     const b64Core = stripDataUrlBase64(raw);

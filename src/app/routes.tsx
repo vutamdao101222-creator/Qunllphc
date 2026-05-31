@@ -15,6 +15,7 @@ import ParentPage from './pages/ParentPage';
 import AdminManagementPage from './pages/AdminManagementPage';
 import SystemPage from './pages/SystemPage';
 import NotificationsPage from './pages/NotificationsPage';
+import SpeakerPage from './pages/SpeakerPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 
@@ -104,6 +105,14 @@ export const router = createBrowserRouter([
         element: (
           <AuthGuard allowedRoles={['admin']}>
             <SystemPage />
+          </AuthGuard>
+        ),
+      },
+      {
+        path: 'speakers',
+        element: (
+          <AuthGuard allowedRoles={['admin', 'teacher']}>
+            <SpeakerPage />
           </AuthGuard>
         ),
       },

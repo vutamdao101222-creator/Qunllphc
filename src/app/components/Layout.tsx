@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, MonitorPlay, BookOpen, BarChart3,
   Settings, Users, CalendarDays, Bell, LogOut, Menu, X,
-  ChevronRight, GraduationCap, Home, ShieldCheck, Sparkles,
+  ChevronRight,   GraduationCap, Home, ShieldCheck, Sparkles, Megaphone,
 } from 'lucide-react';
 import { fetchClassesPage, fetchMyNotifications } from '../lib/api';
 
@@ -24,6 +24,12 @@ const NAV_ITEMS: NavItem[] = [
     to: '/monitor/focus/robo',
     icon: <Sparkles size={18} />,
     label: 'Roboflow · tập trung',
+    roles: ['admin', 'teacher'],
+  },
+  {
+    to: '/speakers',
+    icon: <Megaphone size={18} />,
+    label: 'Loa Bluetooth',
     roles: ['admin', 'teacher'],
   },
   /** Giáo viên: `to` được thay bằng lớp phụ trách đầu tiên từ API */

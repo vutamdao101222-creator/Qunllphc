@@ -170,6 +170,53 @@ export function getMonitorStreamUrl() {
   return apiUrl('/monitor/stream');
 }
 
+/** URL endpoint MJPEG cầu nối RTSP. Đặt vào <img src> hoặc bind monitor. */
+export function buildRtspMjpegUrl(rtspUrl: string, opts: { fps?: number; q?: number; w?: number } = {}) {
+  const u = new URL(apiUrl('/rtsp/mjpeg'), window.location.origin);
+  u.searchParams.set('url', rtspUrl);
+  if (opts.fps) u.searchParams.set('fps', String(opts.fps));
+  if (opts.q) u.searchParams.set('q', String(opts.q));
+  if (opts.w) u.searchParams.set('w', String(opts.w));
+  return u.toString();
+}
+
+/** Probe trạng thái ffmpeg trên server. Không cần auth. */
+export async function probeRtspFfmpeg(): Promise<{ ok: boolean; bin?: string; version?: string; error?: string }> {
+  try {
+    const resp = await fetch(apiUrl('/rtsp/probe'), { cache: 'no-store' });
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return await resp.json();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Chụp 1 ảnh test từ RTSP — trả `{ ok, blobUrl }` (object URL của JPEG) hoặc `{ ok:false, message, stderr }`. */
+export async function captureRtspTestSnapshot(rtspUrl: string, opts: { w?: number; timeoutMs?: number } = {}): Promise<
+  | { ok: true; blobUrl: string }
+  | { ok: false; message: string; stderr?: string | null }
+> {
+  const u = new URL(apiUrl('/rtsp/snapshot'), window.location.origin);
+  u.searchParams.set('url', rtspUrl);
+  if (opts.w) u.searchParams.set('w', String(opts.w));
+  if (opts.timeoutMs) u.searchParams.set('timeoutMs', String(opts.timeoutMs));
+  try {
+    const resp = await fetch(u.toString(), { cache: 'no-store' });
+    if (!resp.ok) {
+      try {
+        const j = await resp.json();
+        return { ok: false, message: j?.message || `HTTP ${resp.status}`, stderr: j?.stderr ?? null };
+      } catch {
+        return { ok: false, message: `HTTP ${resp.status}` };
+      }
+    }
+    const blob = await resp.blob();
+    return { ok: true, blobUrl: URL.createObjectURL(blob) };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function fetchReportSummary() {
   return request('/bao-cao/tong-hop');
 }
@@ -440,6 +487,77 @@ export async function createDeviceApi(input: {
   ghiChu?: string | null;
 }) {
   return request('/he-thong/thiet-bi', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function persistFocusMetrics(input: {
+  maLop: string;
+  concentrationLevel: number;
+  presentCount: number;
+  expectedStudents?: number;
+  summary?: string;
+  source?: 'browser_ai' | 'roboflow' | 'manual';
+  phanTich?: {
+    tomTatDieuHanh?: string;
+    chiSoTapTrungUocLuong?: number;
+    ruiRo?: string;
+    khuyenNghi?: string;
+    hanhVi?: Record<string, number>;
+  };
+  behaviorCounts?: Record<string, number>;
+}) {
+  return request('/monitor/ai/chi-so', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export type BluetoothSpeakerRecord = {
+  maLoa: string;
+  ten: string;
+  maLop: string | null;
+  tenLop?: string | null;
+  bluetoothId: string | null;
+  bluetoothName: string | null;
+  trangThai: string;
+  batThongBao: boolean;
+  amLuong: number;
+  ghiChu?: string | null;
+  ngayTao?: string;
+};
+
+export async function fetchBluetoothSpeakers(maLop?: string) {
+  const q = maLop ? `?maLop=${encodeURIComponent(maLop)}` : '';
+  return request(`/he-thong/loa-bluetooth${q}`) as Promise<{ items: BluetoothSpeakerRecord[] }>;
+}
+
+export async function createBluetoothSpeaker(input: {
+  ten: string;
+  maLop?: string | null;
+  bluetoothId?: string | null;
+  bluetoothName?: string | null;
+  trangThai?: string;
+  batThongBao?: boolean;
+  amLuong?: number;
+  ghiChu?: string | null;
+}) {
+  return request('/he-thong/loa-bluetooth', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateBluetoothSpeaker(
+  maLoa: string,
+  input: Partial<{
+    ten: string;
+    maLop: string | null;
+    bluetoothId: string | null;
+    bluetoothName: string | null;
+    trangThai: string;
+    batThongBao: boolean;
+    amLuong: number;
+    ghiChu: string | null;
+  }>,
+) {
+  return request(`/he-thong/loa-bluetooth/${maLoa}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export async function deleteBluetoothSpeaker(maLoa: string) {
+  return request(`/he-thong/loa-bluetooth/${maLoa}`, { method: 'DELETE' });
 }
 
 export async function fetchParentSummary(fromIso: string, toIso: string) {

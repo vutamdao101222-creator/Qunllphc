@@ -72,5 +72,7 @@ export const env = {
     /** Nếu server dùng path khác, set full URL (ví dụ http://127.0.0.1:9001/infer/workflows/ws/workflow) */
     inferWorkflowUrlOverride: trimStr(process.env.ROBOFLOW_INFER_WORKFLOW_URL, ''),
     imageInputName: trimStr(process.env.ROBOFLOW_IMAGE_INPUT_NAME, 'image'),
+    /** Demo / dev: không gọi mạng — trả JSON giả lập (không phải nhận diện thật) */
+    mockFocus: toBool(process.env.ROBOFLOW_MOCK_FOCUS, false),
   },
 };

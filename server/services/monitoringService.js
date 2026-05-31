@@ -14,6 +14,46 @@ function randomInRange(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/**
+ * Demo: tự tạo buổi học `active` cho LH10A1 / LH11A1 / LH12A1 nếu hiện không còn buổi nào hiệu lực.
+ * Tránh trường hợp Tổng quan báo «không lớp nào active» sau khi seed cũ đã hết 4 giờ.
+ * Chỉ thao tác trên 3 mã lớp demo cố định, không động đến lịch học thật khác.
+ */
+export async function ensureDemoActiveSessions() {
+  if (String(process.env.SIMULATION_AUTO_SEED_BUOI_HOC ?? 'true').toLowerCase() === 'false') {
+    return;
+  }
+  try {
+    const pool = await getPool();
+    await pool.request().query(`
+      DECLARE @demoClasses TABLE (maLop NVARCHAR(20));
+      INSERT INTO @demoClasses (maLop) VALUES (N'LH10A1'), (N'LH11A1'), (N'LH12A1');
+
+      ;WITH need AS (
+        SELECT d.maLop
+        FROM @demoClasses d
+        INNER JOIN dbo.LopHoc l ON l.[MãLớp] = d.maLop
+        WHERE NOT EXISTS (
+          SELECT 1 FROM dbo.BuoiHoc b
+          WHERE b.[MãLớp] = d.maLop
+            AND b.[TrạngThái] = N'active'
+            AND b.[ThờiGianBắtĐầu] <= SYSDATETIME()
+            AND (b.[ThờiGianKếtThúc] IS NULL OR b.[ThờiGianKếtThúc] >= SYSDATETIME())
+        )
+      )
+      INSERT INTO dbo.BuoiHoc ([MãLớp], [ThờiGianBắtĐầu], [ThờiGianKếtThúc], [TrạngThái])
+      SELECT
+        maLop,
+        DATEADD(MINUTE, -10, SYSDATETIME()),
+        DATEADD(HOUR, 6, SYSDATETIME()),
+        N'active'
+      FROM need;
+    `);
+  } catch (e) {
+    logError('ensureDemoActiveSessions failed', e);
+  }
+}
+
 export async function findActiveSessionMaBuoiHoc(maLop) {
   const pool = await getPool();
   const result = await pool
@@ -65,6 +105,8 @@ export async function getTeachers() {
 }
 
 export async function createRealtimeSnapshot() {
+  // Tự gia hạn buổi học demo trước khi tính chỉ số — giữ dashboard có dữ liệu liên tục.
+  await ensureDemoActiveSessions();
   const pool = await getPool();
   const [classes, thresholds] = await Promise.all([getClasses(), getMonitoringThresholds()]);
   const now = new Date();

@@ -1,6 +1,26 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useReducer } from 'react';
 import { Link, useParams, useNavigate, useLocation } from 'react-router';
-import { fetchRealtimeClasses, fetchClass, getMonitorStreamUrl } from '../lib/api';
+import {
+  getFocusClassSnapshot,
+  subscribeFocusSnapshots,
+  getFocusMonitorBind,
+  subscribeFocusMonitorBind,
+} from '../lib/focusSnapshotStorage';
+import { getFocusDetections, subscribeFocusDetections } from '../lib/focusDetectionsStorage';
+import DetectionOverlayCanvas from '../components/monitor/DetectionOverlayCanvas';
+import {
+  fetchRealtimeClasses,
+  fetchClass,
+  getMonitorStreamUrl,
+} from '../lib/api';
+import { saveFocusDetections } from '../lib/focusDetectionsStorage';
+import { persistFocusAnalysisToServer } from '../lib/focusPersist';
+import {
+  analyzeBehaviorOnFrame,
+  createBehaviorState,
+  ensurePoseDetector,
+  type BehaviorState,
+} from '../lib/behaviorAnalyzer';
 import {
   CLASSES, LIVE_DATA, LiveData,
   getTeacher, getRoom, getConcentrationColor, getConcentrationLabel,
@@ -12,11 +32,107 @@ import {
 } from 'recharts';
 import {
   ArrowLeft, Users, Activity, Clock, AlertTriangle,
-  Wifi, WifiOff, Video, TrendingUp, TrendingDown
+  Wifi, WifiOff, Video, TrendingUp, TrendingDown,
+  Volume2, VolumeX, Sparkles,
 } from 'lucide-react';
 
 function normalizeMaLop(s: string) {
   return String(s || '').trim().toUpperCase();
+}
+
+/** Khung nhận diện + phân tích từ trang Roboflow (cùng tab, đúng mã lớp). */
+function AiFocusDetectionsPanel({ maLop }: { maLop: string }) {
+  const key = normalizeMaLop(maLop);
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => subscribeFocusDetections(bump), [bump]);
+  if (!key) return null;
+  const d = getFocusDetections(key);
+  const hasData =
+    (d?.boxes?.length ?? 0) > 0 || Boolean(d?.phanTich?.tomTatDieuHanh || d?.summary);
+  if (!hasData) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/90 p-4 text-sm text-gray-600">
+        <div className="font-medium text-gray-800 mb-1 flex items-center gap-2">
+          <Sparkles size={16} className="text-emerald-600 shrink-0" />
+          Phân tích AI trên khung hình
+        </div>
+        <p className="text-xs leading-relaxed">
+          Chưa có kết quả nhận diện cho lớp <span className="font-mono">{key}</span>. Mở{' '}
+          <Link
+            to={`/monitor/focus/robo?maLop=${encodeURIComponent(key)}`}
+            className="text-sky-600 hover:underline font-medium"
+          >
+            Roboflow · tập trung
+          </Link>
+          , chọn đúng mã lớp và chạy phân tích khung (hoặc bật phân tích tự động).
+        </p>
+      </div>
+    );
+  }
+  const p = d?.phanTich;
+  return (
+    <div className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50/90 to-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div className="font-semibold text-gray-900 flex items-center gap-2 text-sm">
+          <Sparkles size={16} className="text-emerald-600 shrink-0" />
+          Phân tích AI · lớp {key}
+        </div>
+        {d?.at && (
+          <span className="text-[10px] text-gray-500 font-mono shrink-0">
+            {new Date(d.at).toLocaleString('vi-VN')}
+          </span>
+        )}
+      </div>
+      {(d?.summary || p?.tomTatDieuHanh) && (
+        <p className="text-sm text-gray-800 leading-snug mb-3">{d.summary || p?.tomTatDieuHanh}</p>
+      )}
+      <div className="grid sm:grid-cols-3 gap-2 text-xs">
+        {typeof p?.chiSoTapTrungUocLuong === 'number' && (
+          <div className="rounded-lg bg-white/80 border border-gray-100 px-2 py-1.5">
+            <div className="text-gray-500">Chỉ số tập trung (ước lượng)</div>
+            <div className="font-bold text-emerald-700">{p.chiSoTapTrungUocLuong}%</div>
+          </div>
+        )}
+        {(d?.boxes?.length ?? 0) > 0 && (
+          <div className="rounded-lg bg-white/80 border border-gray-100 px-2 py-1.5">
+            <div className="text-gray-500">Thành viên trong khung</div>
+            <div className="font-bold text-blue-700">{d!.boxes!.filter((b) => !b.lost).length}</div>
+          </div>
+        )}
+      </div>
+
+      {p?.hanhVi && Object.keys(p.hanhVi).length > 0 && (
+        <div className="mt-3 grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-[11px]">
+          {([
+            { key: 'focus', label: 'Tập trung', tone: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+            { key: 'raise_hand', label: 'Giơ tay', tone: 'bg-sky-100 text-sky-800 border-sky-200' },
+            { key: 'head_down', label: 'Cúi đầu', tone: 'bg-amber-100 text-amber-800 border-amber-200' },
+            { key: 'turn_away', label: 'Quay sang', tone: 'bg-orange-100 text-orange-800 border-orange-200' },
+            { key: 'phone', label: 'Điện thoại', tone: 'bg-red-100 text-red-800 border-red-200' },
+            { key: 'absent', label: 'Vắng chỗ', tone: 'bg-slate-100 text-slate-700 border-slate-200' },
+          ] as const).map((row) => {
+            const v = p.hanhVi?.[row.key] ?? 0;
+            return (
+              <div key={row.key} className={`rounded-md border px-2 py-1.5 ${row.tone} flex items-baseline justify-between gap-1`}>
+                <span className="truncate">{row.label}</span>
+                <span className="font-bold tabular-nums">{v}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {p?.ruiRo && (
+        <div className="mt-2 text-xs text-amber-900 bg-amber-50/80 border border-amber-100 rounded-lg px-2 py-1.5">
+          <span className="font-medium">Rủi ro / lưu ý:</span> {p.ruiRo}
+        </div>
+      )}
+      {p?.khuyenNghi && (
+        <div className="mt-2 text-xs text-slate-800 bg-slate-100/80 border border-slate-200 rounded-lg px-2 py-1.5">
+          <span className="font-medium">Khuyến nghị:</span> {p.khuyenNghi}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function extractRealtimeList(raw: unknown): any[] {
@@ -127,42 +243,550 @@ function ConcentrationGauge({ value }: { value: number }) {
   );
 }
 
-// Live video feed placeholder
-function LiveVideoFeed({ className }: { className: string }) {
+/**
+ * Phát file/URL đã gắn như luồng trực quan: không thanh tua, tự phát muted, chặn seek ngược.
+ * Giao diện LIVE + AI để nhìn từ ngoài giống camera thật (thực chất là video + pipeline phân tích).
+ */
+/** Lưu vị trí phát theo `src` (sessionStorage) — giúp video tiếp tục đúng chỗ khi điều hướng quay lại. */
+const VIDEO_POS_PREFIX = 'edu_video_pos_v1:';
+function loadVideoPos(src: string): number {
+  try {
+    const v = sessionStorage.getItem(VIDEO_POS_PREFIX + src);
+    if (!v) return 0;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+function saveVideoPos(src: string, t: number) {
+  try {
+    if (Number.isFinite(t) && t >= 0) {
+      sessionStorage.setItem(VIDEO_POS_PREFIX + src, String(t));
+    }
+  } catch {
+    /* sessionStorage có thể đầy — bỏ qua */
+  }
+}
+
+function PseudoLiveBoundVideo({ src, inferMaLop }: { src: string; inferMaLop?: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const inferBusyRef = useRef(false);
+  const behaviorStateRef = useRef<BehaviorState | null>(null);
+  const maxSeenRef = useRef(0);
+  const lastSavedPosRef = useRef(0);
+  const [muted, setMuted] = useState(true);
+  const [aiStatus, setAiStatus] = useState<'loading' | 'idle' | 'running' | 'ok' | 'error'>('loading');
+  const [aiCount, setAiCount] = useState<number>(0);
+  const [aiFocusPct, setAiFocusPct] = useState<number>(0);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    maxSeenRef.current = 0;
+    // Reset behavior tracker khi đổi nguồn video — ID + lịch sử ghế không còn ý nghĩa cross-source.
+    behaviorStateRef.current = createBehaviorState();
+  }, [src]);
+
+  // Lưu / khôi phục vị trí phát.
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || !src) return;
+
+    const resume = () => {
+      const dur = Number.isFinite(v.duration) ? v.duration : 0;
+      const saved = loadVideoPos(src);
+      if (dur > 0 && saved > 0 && saved < dur - 2) {
+        try {
+          v.currentTime = saved;
+          maxSeenRef.current = saved;
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    const onTime = () => {
+      const t = v.currentTime;
+      // Lưu mỗi ~1.5s để không spam sessionStorage.
+      if (Math.abs(t - lastSavedPosRef.current) > 1.5) {
+        lastSavedPosRef.current = t;
+        saveVideoPos(src, t);
+      }
+    };
+    const onPause = () => saveVideoPos(src, v.currentTime);
+    v.addEventListener('loadedmetadata', resume);
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('pause', onPause);
+    // Cũng thử resume ngay nếu metadata đã có (HMR / reuse cache).
+    if ((v as HTMLVideoElement).readyState >= 1) resume();
+
+    return () => {
+      v.removeEventListener('loadedmetadata', resume);
+      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('pause', onPause);
+      // Khi rời trang / đổi src → lưu vị trí cuối để lần sau quay lại đúng chỗ.
+      try {
+        saveVideoPos(src, v.currentTime);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [src]);
+
+  useEffect(() => {
+    const ml = (inferMaLop || '').trim();
+    const v = ref.current;
+    if (!v || !ml) return;
+
+    let stopped = false;
+    setAiStatus('loading');
+    setAiError(null);
+
+    ensurePoseDetector().catch((e) => {
+      setAiStatus('error');
+      setAiError(e instanceof Error ? e.message : String(e));
+    });
+
+    const tick = async () => {
+      if (stopped) return;
+      if (inferBusyRef.current) return;
+      if (v.paused || v.ended) return;
+      if (!v.videoWidth || !v.videoHeight) return;
+      inferBusyRef.current = true;
+      setAiStatus((s) => (s === 'error' ? s : 'running'));
+      try {
+        if (!behaviorStateRef.current) behaviorStateRef.current = createBehaviorState();
+        const { boxes, phanTich, summary } = await analyzeBehaviorOnFrame(v, behaviorStateRef.current, {
+          multiTile: true,
+          hybridCoco: true,
+        });
+        if (stopped) return;
+        saveFocusDetections(ml, {
+          boxes,
+          phanTich,
+          summary,
+          at: new Date().toISOString(),
+        });
+        void persistFocusAnalysisToServer(ml, {
+          concentrationLevel: phanTich.chiSoTapTrungUocLuong ?? 0,
+          presentCount: boxes.filter((b) => !b.lost).length,
+          summary,
+          phanTich,
+          behaviorCounts: phanTich.hanhVi,
+          source: 'browser_ai',
+        });
+        setAiCount(boxes.filter((b) => !b.lost).length);
+        setAiFocusPct(phanTich.chiSoTapTrungUocLuong ?? 0);
+        setAiStatus('ok');
+        setAiError(null);
+      } catch (e) {
+        if (!stopped) {
+          setAiStatus('error');
+          setAiError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        inferBusyRef.current = false;
+      }
+    };
+
+    const startTimer = window.setTimeout(() => void tick(), 1200);
+    const iv = window.setInterval(() => void tick(), 1800);
+    return () => {
+      stopped = true;
+      window.clearTimeout(startTimer);
+      window.clearInterval(iv);
+    };
+  }, [src, inferMaLop]);
+
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    const onTime = () => {
+      maxSeenRef.current = Math.max(maxSeenRef.current, v.currentTime);
+    };
+    const onSeek = () => {
+      const maxT = maxSeenRef.current;
+      const dur = Number.isFinite(v.duration) ? v.duration : 0;
+      // Cho phép vòng lặp tự nhiên (cuối → đầu): không coi đây là tua ngược.
+      if (dur > 0 && maxT > dur - 0.6 && v.currentTime < 0.6) {
+        maxSeenRef.current = 0;
+        return;
+      }
+      if (maxT > 0.2 && v.currentTime < maxT - 0.2) {
+        v.currentTime = maxT;
+      }
+    };
+    const onEnded = () => {
+      // Một số trình duyệt vẫn fire `ended` dù có loop — chủ động seek về 0 và phát tiếp.
+      maxSeenRef.current = 0;
+      try {
+        v.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+      void v.play().catch(() => {});
+    };
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('seeking', onSeek);
+    v.addEventListener('ended', onEnded);
+    return () => {
+      v.removeEventListener('timeupdate', onTime);
+      v.removeEventListener('seeking', onSeek);
+      v.removeEventListener('ended', onEnded);
+    };
+  }, [src]);
+
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    const tryPlay = () => {
+      void v.play().catch(() => {});
+    };
+    // Một số trình duyệt mất phát sau khi tab ẩn rồi quay lại — đảm bảo luôn phát tiếp.
+    const onVis = () => {
+      if (document.visibilityState === 'visible') tryPlay();
+    };
+    v.addEventListener('loadeddata', tryPlay);
+    v.addEventListener('pause', tryPlay);
+    document.addEventListener('visibilitychange', onVis);
+    tryPlay();
+    return () => {
+      v.removeEventListener('loadeddata', tryPlay);
+      v.removeEventListener('pause', tryPlay);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [src]);
+
+  const aiBadgeText =
+    aiStatus === 'loading'
+      ? 'AI · tải mô hình…'
+      : aiStatus === 'running'
+        ? `AI · phân tích${aiCount ? ` (${aiCount})` : ''}`
+        : aiStatus === 'ok'
+          ? `AI · ${aiCount} hs · ${aiFocusPct}% tập trung`
+          : aiStatus === 'error'
+            ? 'AI · lỗi'
+            : 'AI · sẵn sàng';
+  const aiBadgeClass =
+    aiStatus === 'error'
+      ? 'bg-red-900/80 text-red-200 border-red-500/40'
+      : aiStatus === 'ok'
+        ? 'bg-slate-900/85 text-emerald-300 border-emerald-500/40'
+        : 'bg-slate-900/85 text-amber-200 border-amber-500/40';
+
+  return (
+    <>
+      <video
+        ref={ref}
+        key={src}
+        src={src}
+        className="absolute inset-0 w-full h-full object-cover bg-black"
+        muted={muted}
+        playsInline
+        autoPlay
+        loop
+        controls={false}
+        disablePictureInPicture
+        crossOrigin={src.startsWith('blob:') ? undefined : 'anonymous'}
+        tabIndex={-1}
+        onContextMenu={(e) => e.preventDefault()}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.12]"
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.35) 2px, rgba(0,0,0,0.35) 4px)',
+        }}
+        aria-hidden
+      />
+      <div className="absolute bottom-12 left-2 z-[9] flex items-center gap-1.5 pointer-events-none">
+        <div className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium border ${aiBadgeClass}`}>
+          <Sparkles size={12} className="shrink-0" />
+          {aiBadgeText}
+        </div>
+      </div>
+      {aiError && (
+        <div className="absolute bottom-20 left-2 right-2 z-[9] text-[10px] leading-snug text-red-100 bg-red-900/80 border border-red-500/40 rounded-md px-2 py-1.5 pointer-events-none">
+          AI: {aiError.length > 200 ? `${aiError.slice(0, 200)}…` : aiError}
+        </div>
+      )}
+      <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1.5 pointer-events-auto">
+        <button
+          type="button"
+          title={muted ? 'Bật tiếng' : 'Tắt tiếng'}
+          onClick={() => setMuted((m) => !m)}
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/75 border border-white/20"
+        >
+          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** Phát MJPEG (RTSP qua ffmpeg bridge) qua <img> + phân tích hành vi với MoveNet trên img element. */
+function PseudoLiveMjpegImage({ src, inferMaLop }: { src: string; inferMaLop?: string }) {
+  const ref = useRef<HTMLImageElement>(null);
+  const inferBusyRef = useRef(false);
+  const behaviorStateRef = useRef<BehaviorState | null>(null);
+  const [aiStatus, setAiStatus] = useState<'loading' | 'idle' | 'running' | 'ok' | 'error'>('loading');
+  const [aiCount, setAiCount] = useState<number>(0);
+  const [aiFocusPct, setAiFocusPct] = useState<number>(0);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    behaviorStateRef.current = createBehaviorState();
+  }, [src]);
+
+  useEffect(() => {
+    const ml = (inferMaLop || '').trim();
+    const img = ref.current;
+    if (!img || !ml) return;
+
+    let stopped = false;
+    setAiStatus('loading');
+    setAiError(null);
+
+    ensurePoseDetector().catch((e) => {
+      setAiStatus('error');
+      setAiError(e instanceof Error ? e.message : String(e));
+    });
+
+    const tick = async () => {
+      if (stopped) return;
+      if (inferBusyRef.current) return;
+      if (!img.complete || !img.naturalWidth || !img.naturalHeight) return;
+      inferBusyRef.current = true;
+      setAiStatus((s) => (s === 'error' ? s : 'running'));
+      try {
+        if (!behaviorStateRef.current) behaviorStateRef.current = createBehaviorState();
+        const { boxes, phanTich, summary } = await analyzeBehaviorOnFrame(img, behaviorStateRef.current, {
+          multiTile: true,
+          hybridCoco: true,
+        });
+        if (stopped) return;
+        saveFocusDetections(ml, {
+          boxes,
+          phanTich,
+          summary,
+          at: new Date().toISOString(),
+        });
+        void persistFocusAnalysisToServer(ml, {
+          concentrationLevel: phanTich.chiSoTapTrungUocLuong ?? 0,
+          presentCount: boxes.filter((b) => !b.lost).length,
+          summary,
+          phanTich,
+          behaviorCounts: phanTich.hanhVi,
+          source: 'browser_ai',
+        });
+        setAiCount(boxes.filter((b) => !b.lost).length);
+        setAiFocusPct(phanTich.chiSoTapTrungUocLuong ?? 0);
+        setAiStatus('ok');
+        setAiError(null);
+      } catch (e) {
+        if (!stopped) {
+          setAiStatus('error');
+          setAiError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        inferBusyRef.current = false;
+      }
+    };
+
+    const startTimer = window.setTimeout(() => void tick(), 1500);
+    const iv = window.setInterval(() => void tick(), 1800);
+    return () => {
+      stopped = true;
+      window.clearTimeout(startTimer);
+      window.clearInterval(iv);
+    };
+  }, [src, inferMaLop]);
+
+  const badgeText =
+    aiStatus === 'loading'
+      ? 'AI · tải mô hình…'
+      : aiStatus === 'running'
+        ? `AI · phân tích RTSP${aiCount ? ` (${aiCount})` : ''}`
+        : aiStatus === 'ok'
+          ? `AI · ${aiCount} hs · ${aiFocusPct}% tập trung`
+          : aiStatus === 'error'
+            ? 'AI · lỗi'
+            : 'AI · sẵn sàng';
+  const badgeClass =
+    aiStatus === 'error'
+      ? 'bg-red-900/80 text-red-200 border-red-500/40'
+      : aiStatus === 'ok'
+        ? 'bg-slate-900/85 text-emerald-300 border-emerald-500/40'
+        : 'bg-slate-900/85 text-amber-200 border-amber-500/40';
+
+  return (
+    <>
+      <img
+        ref={ref}
+        key={src}
+        src={src}
+        crossOrigin="anonymous"
+        alt="RTSP qua cầu nối ffmpeg"
+        className="absolute inset-0 w-full h-full object-cover bg-black"
+      />
+      <div className="absolute bottom-12 left-2 z-[9] flex items-center gap-1.5 pointer-events-none">
+        <div className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium border ${badgeClass}`}>
+          <Sparkles size={12} className="shrink-0" />
+          {badgeText}
+        </div>
+      </div>
+      {aiError && (
+        <div className="absolute bottom-20 left-2 right-2 z-[9] text-[10px] leading-snug text-red-100 bg-red-900/80 border border-red-500/40 rounded-md px-2 py-1.5 pointer-events-none">
+          AI: {aiError.length > 200 ? `${aiError.slice(0, 200)}…` : aiError}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Ưu tiên: video/URL đã gắn ở Roboflow → ảnh khung AI → placeholder. */
+function LiveVideoFeed({ className, maLop }: { className: string; maLop?: string }) {
   const [time, setTime] = useState(new Date().toLocaleTimeString('vi-VN'));
+  const [snapUrl, setSnapUrl] = useState<string | null>(null);
+  const [playUrl, setPlayUrl] = useState<string | null>(null);
+  const [mjpegUrl, setMjpegUrl] = useState<string | null>(null);
+  /** Có bind/snapshot cho lớp khác — giải thích vì sao thẻ này trống. */
+  const [boundOtherClass, setBoundOtherClass] = useState<string | null>(null);
+
+  const refresh = () => {
+    if (!maLop?.trim()) {
+      setSnapUrl(null);
+      setPlayUrl(null);
+      setMjpegUrl(null);
+      setBoundOtherClass(null);
+      return;
+    }
+    const m = normalizeMaLop(maLop);
+    setSnapUrl(getFocusClassSnapshot(maLop)?.dataUrl ?? null);
+    const b = getFocusMonitorBind(m);
+    if (b && normalizeMaLop(b.maLop) === m && b.mode === 'mjpeg' && b.httpUrl?.trim()) {
+      setMjpegUrl(b.httpUrl.trim());
+      setPlayUrl(null);
+      setBoundOtherClass(null);
+    } else if (b && normalizeMaLop(b.maLop) === m && b.mode === 'http' && b.httpUrl?.trim()) {
+      setPlayUrl(b.httpUrl.trim());
+      setMjpegUrl(null);
+      setBoundOtherClass(null);
+    } else if (b && normalizeMaLop(b.maLop) === m && b.mode === 'blob' && b.blobUrl?.startsWith('blob:')) {
+      setPlayUrl(b.blobUrl);
+      setMjpegUrl(null);
+      setBoundOtherClass(null);
+    } else {
+      setPlayUrl(null);
+      setMjpegUrl(null);
+      if (b && b.mode !== 'none' && normalizeMaLop(b.maLop) !== m) {
+        setBoundOtherClass(b.maLop);
+      } else {
+        setBoundOtherClass(null);
+      }
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    const u1 = subscribeFocusSnapshots(refresh);
+    const u2 = subscribeFocusMonitorBind(refresh);
+    return () => {
+      u1();
+      u2();
+    };
+  }, [maLop]);
+
   useEffect(() => {
     const iv = setInterval(() => setTime(new Date().toLocaleTimeString('vi-VN')), 1000);
     return () => clearInterval(iv);
   }, []);
+
+  const key = maLop?.trim() ? normalizeMaLop(maLop) : '';
+  const mode = mjpegUrl ? 'mjpeg' : playUrl ? 'video' : snapUrl ? 'snapshot' : 'empty';
+
   return (
     <div className="bg-slate-900 rounded-lg overflow-hidden relative aspect-video w-full">
-      {/* Fake video grid pattern */}
-      <div className="absolute inset-0 opacity-10">
-        <div className="grid grid-cols-5 grid-rows-4 h-full">
-          {Array.from({ length: 20 }).map((_, i) => (
-            <div key={i} className="border border-slate-600" />
-          ))}
-        </div>
+      <div className="absolute inset-0">
+        {mjpegUrl ? (
+          <PseudoLiveMjpegImage src={mjpegUrl} inferMaLop={key || undefined} />
+        ) : playUrl ? (
+          <PseudoLiveBoundVideo src={playUrl} inferMaLop={key || undefined} />
+        ) : snapUrl ? (
+          <img src={snapUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        ) : (
+        <>
+          <div className="absolute inset-0 opacity-10">
+            <div className="grid grid-cols-5 grid-rows-4 h-full">
+              {Array.from({ length: 20 }).map((_, i) => (
+                <div key={i} className="border border-slate-600" />
+              ))}
+            </div>
+          </div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-slate-600 text-center px-4 max-w-sm">
+              <Video size={32} className="mx-auto mb-1 opacity-40" />
+              <div className="text-xs opacity-40">Chưa gắn video / chưa có khung AI cho lớp này</div>
+              {boundOtherClass && (
+                <p className="mt-2 text-[11px] text-amber-200 leading-snug bg-black/40 rounded px-2 py-1.5 border border-amber-500/40">
+                  Đang có video/ảnh gắn lớp <strong className="font-mono">{boundOtherClass}</strong> — Roboflow phải chọn{' '}
+                  <strong className="font-mono">đúng mã {key}</strong> thì thẻ này mới hiện. Hoặc mở Roboflow cho lớp đang gắn.
+                </p>
+              )}
+              {key ? (
+                <Link
+                  to={`/monitor/focus/robo?maLop=${encodeURIComponent(key)}`}
+                  className="mt-2 inline-block text-[11px] text-sky-300 hover:underline"
+                >
+                  Roboflow · tập trung — lớp {key}: chọn MP4 / URL HTTP / phân tích khung
+                </Link>
+              ) : (
+                <div className="text-[10px] opacity-30 mt-1">Chọn mã lớp ở trang AI tập trung</div>
+              )}
+            </div>
+          </div>
+        </>
+        )}
       </div>
-      {/* Center silhouette */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-slate-600 text-center">
-          <Video size={32} className="mx-auto mb-1 opacity-40" />
-          <div className="text-xs opacity-40">Camera trực tiếp</div>
-        </div>
+      {key && (mode === 'video' || mode === 'snapshot' || mode === 'mjpeg') && <DetectionOverlayCanvas maLop={key} />}
+      <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 pointer-events-none z-[8]">
+        {(mode === 'video' || mode === 'mjpeg') && (
+          <>
+            <div className="flex items-center gap-1.5 bg-red-600 text-white text-xs px-2.5 py-1 rounded-md font-semibold shadow-lg ring-1 ring-red-400/50">
+              <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              TRỰC TIẾP
+            </div>
+            <div className="flex items-center gap-1 rounded-md bg-slate-900/85 px-2 py-1 text-[10px] font-medium text-emerald-300 border border-emerald-500/40">
+              <Sparkles size={12} className="shrink-0" />
+              AI
+            </div>
+          </>
+        )}
+        {mode === 'snapshot' && (
+          <div className="flex items-center gap-1.5 bg-indigo-600 text-white text-xs px-2 py-1 rounded-md font-medium">
+            Khung AI
+          </div>
+        )}
+        {mode === 'empty' && (
+          <div className="flex items-center gap-1.5 bg-red-600 text-white text-xs px-2 py-1 rounded-md font-medium">
+            <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            LIVE
+          </div>
+        )}
       </div>
-      {/* LIVE badge */}
-      <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-red-600 text-white text-xs px-2 py-1 rounded-md font-medium">
-        <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-        LIVE
-      </div>
-      {/* Time */}
-      <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded font-mono">
+      <div className="absolute top-2 right-2 z-[8] bg-black/50 text-white text-xs px-2 py-1 rounded font-mono pointer-events-none">
         {time}
       </div>
-      {/* Bottom bar */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+      <div className="absolute bottom-0 left-0 right-0 z-[8] bg-gradient-to-t from-black/70 to-transparent p-2 pointer-events-none">
         <div className="text-white text-xs font-medium truncate">{className}</div>
+        {key && (
+          <div className="text-[10px] text-white/80 truncate">
+            {mode === 'video' && 'Luồng phòng · trực quan · '}
+            {mode === 'mjpeg' && 'Camera RTSP · cầu nối ffmpeg · '}
+            {mode === 'snapshot' && 'Ảnh phân tích gần nhất · '}
+            {mode === 'empty' && 'Demo · '}
+            lớp {key}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -226,7 +850,10 @@ function ClassMonitorCard({ live }: { live: LiveData }) {
         </div>
 
         {/* Video */}
-        <LiveVideoFeed className={live.displayName ?? cls?.name ?? live.classId} />
+        <LiveVideoFeed
+          className={live.displayName ?? cls?.name ?? live.classId}
+          maLop={normalizeMaLop(live.classId)}
+        />
 
         {/* Stats */}
         <div className="flex items-center justify-between mt-4">
@@ -575,7 +1202,10 @@ function MonitorDetail({ classId }: { classId: string }) {
                   Trực tiếp
                 </div>
               </div>
-              <LiveVideoFeed className={String(title)} />
+              <LiveVideoFeed
+                className={String(title)}
+                maLop={normalizeMaLop(String(remoteClass?.maLop ?? remoteRealtime?.maLop ?? classId))}
+              />
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div className="text-center p-3 bg-gray-50 rounded-lg">
                   <ConcentrationGauge value={conc} />
@@ -638,6 +1268,10 @@ function MonitorDetail({ classId }: { classId: string }) {
               </div>
             </div>
           </div>
+
+          <AiFocusDetectionsPanel
+            maLop={String(remoteClass?.maLop ?? remoteRealtime?.maLop ?? classId)}
+          />
 
           <div
             className={`rounded-xl p-4 border ${
@@ -720,7 +1354,7 @@ function MonitorDetail({ classId }: { classId: string }) {
               Trực tiếp
             </div>
           </div>
-          <LiveVideoFeed className={cls.name} />
+          <LiveVideoFeed className={cls.name} maLop={normalizeMaLop(cls.id)} />
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="text-center p-3 bg-gray-50 rounded-lg">
               <ConcentrationGauge value={concentration} />
@@ -779,6 +1413,8 @@ function MonitorDetail({ classId }: { classId: string }) {
           </div>
         </div>
       </div>
+
+      <AiFocusDetectionsPanel maLop={cls.id} />
 
       {/* Description */}
       <div className={`rounded-xl p-4 border ${
